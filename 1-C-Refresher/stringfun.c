@@ -17,6 +17,7 @@ int  count_words(char *, int, int);
 int reverse_string(char *, int, int);
 void print_reversed_string(char*, int);
 int word_print(char*, int, int);
+int replace_string(char*, char*, char*, int, int, int);
 
 int setup_buff(char *buff, char *user_str, int len){
     int string_length = 0;
@@ -120,6 +121,54 @@ int word_print(char* buff, int len, int str_len){
     printf(" (%d)\n", num_letters);
     return 0;
 }
+
+int replace_string(char* buff, char* tbrBuff, char* rBuff, int buff_sz, int tbrbuff_sz, int rbuff_sz){
+    int curr_word_size = 0;
+    bool prev_letter_valid = true;
+    for(int i = 0; i < buff_sz; i++){
+        if(isspace(*(buff + i)) && curr_word_size == tbrbuff_sz && prev_letter_valid){
+            //Handle resizing
+             if (buff_sz + (rbuff_sz - tbrbuff_sz) > BUFFER_SZ){
+              printf("Error: Replaced String Overruns buffer");
+              return -2;
+            }
+            int amount_to_be_moved = rbuff_sz - tbrbuff_sz; //If bigger, start at front and go forwards, smaller, do
+                                                            //opposite, 
+            printf("%d\n", buff_sz);
+            char temp_ptr;
+            if (amount_to_be_moved > 0){
+                for (int j = 0; j <= (buff_sz - i); j++){
+                    printf("%d\n", buff_sz - j + amount_to_be_moved);
+                    temp_ptr = *(buff + buff_sz - j + amount_to_be_moved); 
+                    *(buff + buff_sz - j + amount_to_be_moved) = *(buff + buff_sz - j);
+                    *(buff + buff_sz - j) = temp_ptr;
+                }
+            } else { 
+                for (int j = i; j < (buff_sz); j++) {
+                    temp_ptr = *(buff + j + amount_to_be_moved);
+                    *(buff + j + amount_to_be_moved) = *(buff + j);
+                    *(buff + j) = temp_ptr;
+                }
+            }
+            for (int k = 0; k < rbuff_sz; k++){
+                *(buff + i + k - tbrbuff_sz) = *(rBuff + k);
+            }
+            curr_word_size = 0;
+            prev_letter_valid = false;
+            buff += amount_to_be_moved;
+        } else if (*(buff + i) == *(tbrBuff + curr_word_size) && prev_letter_valid){
+            curr_word_size++;
+        } else if (isspace(*(buff + i)) && !prev_letter_valid){
+            curr_word_size = 0;
+            prev_letter_valid = true;
+        } else {
+            prev_letter_valid = false;
+        }
+    }
+    //Add if to check if last word was valid
+    return 0;
+}
+
 //ADD OTHER HELPER FUNCTIONS HERE FOR OTHER REQUIRED PROGRAM OPTIONS
 
 int main(int argc, char *argv[]){
@@ -196,6 +245,35 @@ int main(int argc, char *argv[]){
                 exit(2);
             }
             break;
+        case 'x':
+            if (argc < 5){
+                usage(argv[0]);
+                exit(1);
+            }
+            char* to_be_replaced = argv[3];
+            char* replacement_string = argv[4];
+
+            char* tbrBuff = (char *)malloc(sizeof(char) * BUFFER_SZ);
+            if (tbrBuff == NULL){
+                printf("Memory not allocated correctly.\n");
+                exit(99);
+            }
+            char* rBuff = (char *)malloc(sizeof(char) * BUFFER_SZ);
+            if (rBuff == NULL){
+                printf("Memory not allocated correctly.\n");
+                exit(99);
+            }
+            int tbr_size = setup_buff(tbrBuff, to_be_replaced, BUFFER_SZ);
+            int r_size = setup_buff(rBuff, replacement_string, BUFFER_SZ);
+            print_buff(tbrBuff, BUFFER_SZ);
+            print_buff(rBuff, BUFFER_SZ);
+            
+            rc = replace_string(buff, tbrBuff, rBuff, user_str_len, tbr_size, r_size);
+            if (rc < 0){
+                printf("Error replacing string, rc = %d", rc);
+                exit(2);
+            }
+            break;
         //TODO:  #5 Implement the other cases for 'r' and 'w' by extending
         //       the case statement options
         default:
@@ -205,6 +283,7 @@ int main(int argc, char *argv[]){
 
     //TODO:  #6 Dont forget to free your buffer before exiting
     print_buff(buff,BUFFER_SZ);
+    free(buff);
     exit(0);
 }
 
