@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <ctype.h>
 
 #define BUFFER_SZ 50
 
@@ -22,6 +21,11 @@ int replace_string(char*, char*, char*, int, int, int, int);
 int size_check(int, int, int, int);
 void dot_pad(char*, int, int);
 void print_modified_string(char*, int);
+int isspace(int c);
+
+int isspace(int c){
+    return ((c == ' ') || (c =='\n') || (c == '\t'));
+}
 
 int setup_buff(char *buff, char *user_str, int len){
     int string_length = 0;
@@ -29,7 +33,7 @@ int setup_buff(char *buff, char *user_str, int len){
         if (isspace(*user_str)) {
             *buff = ' ';
             buff++;
-            while(isspace(*(user_str + 1))){
+            while(isspace(*(user_str + 1))){ //Skips over extra spaces
                 user_str++;
             }
         }
@@ -43,7 +47,7 @@ int setup_buff(char *buff, char *user_str, int len){
             return -1;
         }
     } 
-    for(int i = 0; i < (len - string_length); i++){
+    for(int i = 0; i < (len - string_length); i++){ //Pads buffer
         *(buff + i) = '.';
     }
     //TODO: #4:  Implement the setup buff as per the directions
@@ -66,7 +70,7 @@ void usage(char *exename){
 
 }
 
-int count_words(char *buff, int len, int str_len){
+int count_words(char *buff, int len, int str_len){ //Counts words in buffer
     if (str_len > len){
         return -1;
     }
@@ -81,7 +85,7 @@ int count_words(char *buff, int len, int str_len){
     return count;
 }
 
-int reverse_string(char* buff, int len, int str_len){
+int reverse_string(char* buff, int len, int str_len){ //Reverses String in place
     if (str_len > len){
         return -1;
     }
@@ -103,7 +107,7 @@ void print_reversed_string(char* buff, int str_len){
     print_string(buff, str_len);
 }
 
-int word_print(char* buff, int len, int str_len){
+int word_print(char* buff, int len, int str_len){ //Pretty prints word and num chars in word
     if(str_len > len){
         return -1;
     }
@@ -112,7 +116,7 @@ int word_print(char* buff, int len, int str_len){
     printf("Word Print\n----------\n");
     printf("%d. ", word_num);
     word_num++;
-    for(int i = 0; i < str_len; i++){
+    for(int i = 0; i < str_len; i++){ //Main loop
         if(isspace(*(buff + i))){
             printf(" (%d)\n%d. ", num_letters, word_num);
             word_num++;
@@ -122,7 +126,7 @@ int word_print(char* buff, int len, int str_len){
             num_letters++;
         }
     }
-    printf(" (%d)\n", num_letters);
+    printf(" (%d)\n", num_letters); //Prints number of letters in last word
     return 0;
 }
 
@@ -132,34 +136,39 @@ int replace_string(char* buff, char* tbrBuff, char* rBuff, int buff_sz, int tbrb
     int rc;
     int current_letter = 0;
     while(*(buff + current_letter) != '.'){
-        if(isspace(*(buff + current_letter)) && curr_word_size == tbrbuff_sz && prev_letter_valid){
-            //Handle resizing
+        if(isspace(*(buff + current_letter)) && curr_word_size == tbrbuff_sz && prev_letter_valid){ //If we have reached
+                                                                                                    //the end of a word
+                                                                                                    //to be replaced
             rc = size_check(buff_sz, tbrbuff_sz, rbuff_sz, max_size);
             if (rc < 0){
                 return -2;
             }
-            int amount_to_be_moved = rbuff_sz - tbrbuff_sz; //If new woed bigger, start at front and go forwards, smaller, do
-                                                            //opposite, 
+            int amount_to_be_moved = rbuff_sz - tbrbuff_sz; //If new word bigger, start at front and go forwards, smaller, do
+                                                            //opposite to prevent overwriting values that need to be
+                                                            //moved 
             if (amount_to_be_moved > 0){
-                for (int j = 0; j <= (buff_sz - current_letter); j++){
+                for (int j = 0; j <= (buff_sz - current_letter); j++){ //Start at front and go back
                     *(buff + buff_sz - j + amount_to_be_moved) = *(buff + buff_sz - j);
                 }
             } else { 
-                for (int j = current_letter; j < (buff_sz); j++) {
+                for (int j = current_letter; j < (buff_sz); j++) { //Start at back and go forwards
                     *(buff + j + amount_to_be_moved) = *(buff + j);
                 }
                 dot_pad(buff, buff_sz, -(amount_to_be_moved));
             }
-            for (int k = 0; k < rbuff_sz; k++){
+            for (int k = 0; k < rbuff_sz; k++){ //Put in new word
                 *(buff + current_letter + k - tbrbuff_sz) = *(rBuff + k);
             }
-            buff_sz += amount_to_be_moved;
             curr_word_size = 0;
             prev_letter_valid = false;
+            buff_sz += amount_to_be_moved;
             current_letter += amount_to_be_moved;
-        } else if (*(buff + current_letter) == *(tbrBuff + curr_word_size) && prev_letter_valid){
+        } else if (*(buff + current_letter) == *(tbrBuff + curr_word_size) && prev_letter_valid){ //If we are not at the
+                                                                                                  //end of a word and
+                                                                                                  //all previous letters
+                                                                                                  //have been valid
             curr_word_size++;
-        } else if (isspace(*(buff + current_letter)) && !prev_letter_valid){
+        } else if (isspace(*(buff + current_letter)) && !prev_letter_valid){ //If we reach the end of an invalid word
             curr_word_size = 0;
             prev_letter_valid = true;
         } else {
@@ -167,7 +176,7 @@ int replace_string(char* buff, char* tbrBuff, char* rBuff, int buff_sz, int tbrb
         }
         current_letter++;
     }
-    if(curr_word_size == tbrbuff_sz && prev_letter_valid){
+    if(curr_word_size == tbrbuff_sz && prev_letter_valid){ //Checks if last word was valid
         rc = size_check(buff_sz, tbrbuff_sz, rbuff_sz, max_size);
         if (rc < 0){
             return -2;
@@ -180,19 +189,19 @@ int replace_string(char* buff, char* tbrBuff, char* rBuff, int buff_sz, int tbrb
         }
         buff_sz += rbuff_sz - tbrbuff_sz;
     }
-    //Add if to check if last word was valid
     print_modified_string(buff, buff_sz); 
     return 0;
 }
 
-void dot_pad(char* buff, int buff_sz, int pad_amount){
+void dot_pad(char* buff, int buff_sz, int pad_amount){ //Pad periods
     for (int i = 0; i <= pad_amount; i++){
        *(buff + buff_sz - pad_amount + i) = '.';
     }
 }
-int size_check(int max_sz, int size_initial, int size_new, int buffer_sz){
+int size_check(int max_sz, int size_initial, int size_new, int buffer_sz){ //Checks if replacement string overruns
+                                                                           //buffer
         if (max_sz + (size_new - size_initial) > buffer_sz){
-        printf("Error: Replaced String Overruns buffer\n");
+        printf("Error: Replacement String Overruns buffer\n");
         return -2;
     } else {
     return 0;
@@ -288,12 +297,12 @@ int main(int argc, char *argv[]){
             char* to_be_replaced = argv[3];
             char* replacement_string = argv[4];
 
-            char* tbrBuff = (char *)malloc(sizeof(char) * BUFFER_SZ);
+            char* tbrBuff = (char *)malloc(sizeof(char) * BUFFER_SZ); //Buffer of word to be replaced
             if (tbrBuff == NULL){
                 printf("Memory not allocated correctly.\n");
                 exit(99);
             }
-            char* rBuff = (char *)malloc(sizeof(char) * BUFFER_SZ);
+            char* rBuff = (char *)malloc(sizeof(char) * BUFFER_SZ); //Buffer of replacement word
             if (rBuff == NULL){
                 printf("Memory not allocated correctly.\n");
                 exit(99);
@@ -329,5 +338,5 @@ int main(int argc, char *argv[]){
 //          the buff variable will have exactly 50 bytes?
 //          
 //          It is good practice as we could change the length of the buffer, and so hard-coding fifty would result in
-//          erros. It also haleps ensure that we are always working with the correct size of the buffer, ensuring that
+//          errors. It also helps ensure that we are always working with the correct size of the buffer, ensuring that
 //          we don't try to access memory that isn't ours.
