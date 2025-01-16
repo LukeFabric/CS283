@@ -29,12 +29,22 @@ int isspace(int c){
 
 int setup_buff(char *buff, char *user_str, int len){
     int string_length = 0;
+    bool leading_whitespace = true;
     while(*user_str != '\0'){
-        if (isspace(*user_str)) {
-            *buff = ' ';
-            buff++;
+        if (isspace(*user_str) && leading_whitespace){
+            while(isspace(*(user_str + 1))) {
+                user_str++;
+            }
+        } else if (isspace(*user_str)) {
             while(isspace(*(user_str + 1))){ //Skips over extra spaces
                 user_str++;
+            }
+            if (*(user_str + 1) == '\0') {
+                string_length--;
+                break;
+            }else{
+            *buff = ' ';
+            buff++;
             }
         }
         else{
@@ -43,9 +53,10 @@ int setup_buff(char *buff, char *user_str, int len){
         }
         user_str++;
         string_length++;
-        if(string_length > len){
+        if((string_length > len) && (!isspace(*(buff + string_length + 1)))){
             return -1;
         }
+        leading_whitespace = false;
     } 
     for(int i = 0; i < (len - string_length); i++){ //Pads buffer
         *(buff + i) = '.';
@@ -74,8 +85,11 @@ int count_words(char *buff, int len, int str_len){ //Counts words in buffer
     if (str_len > len){
         return -1;
     }
+    if (str_len == 0) {
+        return 0;
+    }
     int count = 0;
-    for(int i = 0; i < len; i++){
+    for(int i = 0; i < str_len; i++){
         if(isspace(*buff)){
             count++;
         }
@@ -88,6 +102,9 @@ int count_words(char *buff, int len, int str_len){ //Counts words in buffer
 int reverse_string(char* buff, int len, int str_len){ //Reverses String in place
     if (str_len > len){
         return -1;
+    }
+    if (str_len == 0){
+        return 0;
     }
     int end_index = str_len - 1;
     int start_index = 0;
@@ -111,6 +128,10 @@ int word_print(char* buff, int len, int str_len){ //Pretty prints word and num c
     if(str_len > len){
         return -1;
     }
+    if (str_len == 0) {
+        printf("No Words to print\n");
+        return 0;
+    }
     int num_letters = 0;
     int word_num = 1;
     printf("Word Print\n----------\n");
@@ -127,15 +148,20 @@ int word_print(char* buff, int len, int str_len){ //Pretty prints word and num c
         }
     }
     printf(" (%d)\n", num_letters); //Prints number of letters in last word
+    printf("\nNumber of words returned: %d\n", word_num - 1);
     return 0;
 }
 
 int replace_string(char* buff, char* tbrBuff, char* rBuff, int buff_sz, int tbrbuff_sz, int rbuff_sz, int max_size){
+    if(buff_sz == 0){
+        printf("No words to replace\n");
+        return 0;
+    }
     int curr_word_size = 0;
     bool prev_letter_valid = true;
     int rc;
     int current_letter = 0;
-    while(*(buff + current_letter) != '.'){
+    while( (*(buff + current_letter) != '.') && (current_letter < max_size)) {
         if(isspace(*(buff + current_letter)) && curr_word_size == tbrbuff_sz && prev_letter_valid){ //If we have reached
                                                                                                     //the end of a word
                                                                                                     //to be replaced
@@ -261,7 +287,7 @@ int main(int argc, char *argv[]){
 
     user_str_len = setup_buff(buff, input_string, BUFFER_SZ);     //see todos
     if (user_str_len < 0){
-        printf("Error setting up buffer, error = %d", user_str_len);
+        printf("Error setting up buffer, error = %d\n", user_str_len);
         exit(2);
     }
 
