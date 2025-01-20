@@ -137,7 +137,7 @@ int word_print(char* buff, int len, int str_len){ //Pretty prints word and num c
     printf("Word Print\n----------\n");
     printf("%d. ", word_num);
     word_num++;
-    for(int i = 0; i < str_len; i++){ //Main loop
+    for(int i = 0; i <= str_len; i++){ //Main loop
         if(isspace(*(buff + i))){
             printf(" (%d)\n%d. ", num_letters, word_num);
             word_num++;
@@ -282,13 +282,13 @@ int main(int argc, char *argv[]){
 
     if (buff == NULL) {
         printf("Memory not allocated correctly.\n");
-        exit(99);
+        exit(2);
     }
 
     user_str_len = setup_buff(buff, input_string, BUFFER_SZ);     //see todos
     if (user_str_len < 0){
-        printf("Error setting up buffer, error = %d\n", user_str_len);
-        exit(2);
+        printf("Error setting up buffer, error = %d\n", user_str_len); //String length overruns buffer
+        exit(3);
     }
 
     switch (opt){
@@ -296,7 +296,7 @@ int main(int argc, char *argv[]){
             rc = count_words(buff, BUFFER_SZ, user_str_len);  //you need to implement
             if (rc < 0){
                 printf("Error counting words, rc = %d\n", rc);
-                exit(2);
+                exit(3);
             }
             printf("Word Count: %d\n", rc);
             break;
@@ -304,7 +304,7 @@ int main(int argc, char *argv[]){
             rc = reverse_string(buff, BUFFER_SZ, user_str_len);
             if (rc < 0){
                 printf("Error reversing string, rc = %d\n", rc);
-                exit(2);
+                exit(3);
             }
             print_reversed_string(buff, user_str_len);
             break;
@@ -312,7 +312,7 @@ int main(int argc, char *argv[]){
             rc = word_print(buff, BUFFER_SZ, user_str_len);
             if (rc < 0){
                 printf("Error finding wordcount, rc = %d\n", rc);
-                exit(2);
+                exit(3);
             }
             break;
         case 'x':
@@ -326,12 +326,12 @@ int main(int argc, char *argv[]){
             char* tbrBuff = (char *)malloc(sizeof(char) * BUFFER_SZ); //Buffer of word to be replaced
             if (tbrBuff == NULL){
                 printf("Memory not allocated correctly.\n");
-                exit(99);
+                exit(2);
             }
             char* rBuff = (char *)malloc(sizeof(char) * BUFFER_SZ); //Buffer of replacement word
             if (rBuff == NULL){
                 printf("Memory not allocated correctly.\n");
-                exit(99);
+                exit(2);
             }
             int tbr_size = setup_buff(tbrBuff, to_be_replaced, BUFFER_SZ);
             int r_size = setup_buff(rBuff, replacement_string, BUFFER_SZ);
@@ -339,7 +339,7 @@ int main(int argc, char *argv[]){
             rc = replace_string(buff, tbrBuff, rBuff, user_str_len, tbr_size, r_size, BUFFER_SZ);
             if (rc < 0){
                 printf("Error replacing string, rc = %d\n", rc);
-                exit(2);
+                exit(3);
             }
             free(tbrBuff);
             free(rBuff);
