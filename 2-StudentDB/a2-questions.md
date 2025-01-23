@@ -41,8 +41,9 @@ Please answer the following questions and submit in your repo for the second ass
     ```
     Can you think of any reason why the above implementation would be a **very bad idea** using the C programming language?  Specifically, address why the above code introduces a subtle bug that could be hard to identify at runtime? 
 
-    > **ANSWER:** In C, there is the possibility that memory could fail to allocate and so &student would be null,
-    causing issues when the caller looks at the return and thinks that it failed, when in reality it succeeded. 
+    > **ANSWER:** In C, this would return a reference to a local variable that is not in the namespace of the caller,
+    and trying to reference it when you exit the function is undefined behavior and would cause a lot of issues if you
+    were to actually try and use that return value.
 
 3. Another way the `get_student(...)` function could be implemented is as follows:
 
@@ -75,8 +76,9 @@ Please answer the following questions and submit in your repo for the second ass
     ```
     In this implementation the storage for the student record is allocated on the heap using `malloc()` and passed back to the caller when the function returns. What do you think about this alternative implementation of `get_student(...)`?  Address in your answer why it work work, but also think about any potential problems it could cause.  
     
-    > **ANSWER:** This works, it would allow for the program to search and return a pointer to the record, but it introduces problems in that it could eventually point to nothing if the record is
-    deleted, causing issues later and it could cause a memory leak if one forgets to free it.
+    > **ANSWER:** This works, as the pointer we return would point to valid memory which we just allocated on the heap,
+    which is not undefined behavior, but this could introduce a memory leak if the caller fails to free the returned
+    pointer. 
 
 
 4. Lets take a look at how storage is managed for our simple database. Recall that all student records are stored on disk using the layout of the `student_t` structure (which has a size of 64 bytes).  Lets start with a fresh database by deleting the `student.db` file using the command `rm ./student.db`.  Now that we have an empty database lets add a few students and see what is happening under the covers.  Consider the following sequence of commands:
@@ -106,12 +108,16 @@ Please answer the following questions and submit in your repo for the second ass
 
     - Please explain why the file size reported by the `ls` command was 128 bytes after adding student with ID=1, 256 after adding student with ID=3, and 4160 after adding the student with ID=64? 
 
-        > **ANSWER:** The data is stored sparsely on multiple blocks, and so when the fourth term is added, it goes to a
-        different sparse block, thus causing the size ls shows to grow by that much.
+        > **ANSWER:** When we add the first student, we have 128 bytes to memory, 64 for the unusued 0th student, and
+        64 to hold the student with the id of 1. For the second student with id=3, just as with the 0th student, the
+        unoccupied memory for each student is added to the total ls reports, so with student 2, we report the memory
+        taken up by 0, 1, 2, and 3. The same goes for student 64, we count the memory of all the students between them
+        and student 3, so we report the memory taken from all students from 0 to 64, or 64 * 65 which is 4160 bytes.
 
     -   Why did the total storage used on the disk remain unchanged when we added the student with ID=1, ID=3, and ID=63, but increased from 4K to 8K when we added the student with ID=64? 
 
-        > **ANSWER:** The data grows from one block to two blocks, thus showing its size as 8k.
+        > **ANSWER:** The data grows from one block to two blocks as we exceeded the storage space that 1 block can
+        provide, thus showing its size as 8k.
 
     - Now lets add one more student with a large student ID number  and see what happens:
 
@@ -124,5 +130,5 @@ Please answer the following questions and submit in your repo for the second ass
         ```
         We see from above adding a student with a very large student ID (ID=99999) increased the file size to 6400000 as shown by `ls` but the raw storage only increased to 12K as reported by `du`.  Can provide some insight into why this happened?
 
-        > **ANSWER:** The offset is now very large and sparse, this id is very far away from the others, causing ls to
-        report that large size, however it only takes up 3 blocks, so du reports only 12.0k. 
+        > **ANSWER:** As said previously, ls will report the size of from 0 to the largest occupied student, which in
+        this case is 99999, so ls will report the size as 64 * 1000000 which is 64000000 bytes. However, the data only truly takes up 3 blocks as we needed another block to hold the next student, so du reports that the file only takes up 12.0k. 

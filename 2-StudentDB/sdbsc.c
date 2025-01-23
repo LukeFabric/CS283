@@ -291,9 +291,7 @@ int print_db(int fd){
             return ERR_DB_FILE;
         }
 
-        if(memcmp(&sBuff, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE) == 0) {
-            continue;
-        } else {
+        if(memcmp(&sBuff, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE) != 0) {
             numRecords++;
 
             if(numRecords == 1) {
@@ -400,7 +398,75 @@ void print_student(student_t *s){
  *            
  */
 int compress_db(int fd){
-    printf(M_NOT_IMPL);
+
+    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
+
+    int flags = O_RDWR | O_CREAT | O_TRUNC; //O_TRUNC needed to destroy file contents if tempdb exists
+    int tempFd = open(TMP_DB_FILE, flags, mode);
+
+    if (tempFd == -1) {
+        printf(M_ERR_DB_OPEN);
+        return ERR_DB_FILE;
+    }
+
+    //int records = count_db_records(fd); //Causes test fails
+
+    //int recordsAdded = 0;
+
+    student_t sBuff = {0};
+
+    int currStudent;
+
+    for (int i = MIN_STD_ID; i <= MAX_STD_ID; i++) {
+
+        int offset = i * STUDENT_RECORD_SIZE;
+
+        currStudent = get_student(fd, i, &sBuff);
+
+        if (currStudent == ERR_DB_FILE) {
+            printf(M_ERR_DB_READ);
+            return ERR_DB_FILE;
+        }
+
+        if (currStudent == NO_ERROR) {
+
+            if(lseek(tempFd, offset, SEEK_SET) == -1) {
+                printf(M_ERR_DB_READ);
+                close(tempFd);
+                return ERR_DB_FILE;
+            }
+
+            if(write(tempFd, &sBuff, STUDENT_RECORD_SIZE) == -1) {
+                printf(M_ERR_DB_WRITE);
+                close(tempFd);
+                return ERR_DB_FILE;
+            }
+            /*
+            recordsAdded++;
+
+            if (records == recordsAdded) {
+                break;
+            }
+            */
+        }
+    }
+
+    close(tempFd);
+    close(fd);
+
+    if(rename(TMP_DB_FILE, DB_FILE) != 0) {
+        printf(M_ERR_DB_CREATE);
+        return ERR_DB_FILE;
+    }
+
+    fd = open_db(DB_FILE, false);
+
+    if(fd == ERR_DB_FILE) {
+        printf(M_ERR_DB_OPEN);
+        return ERR_DB_FILE;
+    }
+
+    printf(M_DB_COMPRESSED_OK);
     return fd;
 }
 
