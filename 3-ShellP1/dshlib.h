@@ -47,6 +47,7 @@ void removeWhitespace(char* destination, char* toBeStripped, int sourceLen, int 
 
 int countPipes(char* cmd_buff);
 void printCmdList(command_list_t clist);
+void printDragon(const int* dragon, int numLines);
 
 // output constants
 #define CMD_OK_HEADER "PARSED COMMAND LINE - TOTAL COMMANDS %d\n"
