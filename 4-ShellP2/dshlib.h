@@ -13,7 +13,7 @@
 typedef struct cmd_buff
 {
     int  argc;
-    char *argv[CMD_ARGV_MAX];
+    char *argv[CMD_ARGV_MAX + 1];
     char *_cmd_buffer;
 } cmd_buff_t;
 
@@ -71,8 +71,8 @@ void print_dragon();
 //main execution context
 int exec_local_cmd_loop();
 int exec_cmd(cmd_buff_t *cmd);
-
-
+int execCmd(cmd_buff_t* cmd);
+void printError(int error);
 
 
 //output constants

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <errno.h>
 #include "dshlib.h"
 
 /*
@@ -56,10 +57,15 @@ int exec_local_cmd_loop()
     char *cmd_buff = (char *)malloc(SH_CMD_MAX * sizeof(char));
     int rc = 0;
     cmd_buff_t* cmd = (cmd_buff_t*)malloc(sizeof(cmd_buff_t));
+    int return_code = 0;
 
     if(cmd_buff == NULL){
         printf("Error allocating memory for command buffer\n");
-        return 5;
+        return ERR_MEMORY;
+    }
+    if(cmd == NULL){
+        printf("Error allocating memory for cmd struct\n");
+        return ERR_MEMORY;
     }
     while (1)
     {
@@ -74,48 +80,95 @@ int exec_local_cmd_loop()
         
         if (!cmd_buff[0]) {
             printf(CMD_WARN_NO_CMD);
+            return_code = WARN_NO_CMDS;
             continue;
         }
         int pipeCount = countPipes(cmd_buff);
 
         if (pipeCount >= CMD_MAX) {
             printf(CMD_ERR_PIPE_LIMIT, CMD_MAX);
+            return_code = ERR_TOO_MANY_COMMANDS;
             continue;
         }
         rc = build_cmd_buff(cmd_buff,cmd);
-        if (rc == 0) {
-            if (exec_built_in_cmd(cmd) != BI_EXECUTED){
-                int f_result, c_result;
-                f_result = fork();
-                 if (f_result < 0){
-                    perror("fork error");
-                    exit(1);
+        if (rc == OK) {
+            Built_In_Cmds result = exec_built_in_cmd(cmd);
+            if (result == BI_CMD_EXIT) {
+                break;
+            } else if (result == BI_NOT_BI){
+                rc = execCmd(cmd);
+                printError(rc);
+                if (rc != 0) {
+                    return_code = ERR_EXEC_CMD;
+                } else {
+                    return_code = OK;
                 }
-                if (f_result == 0) {
-                    rc = execvp(cmd->argv[0], cmd->argv);;
-                    if (rc < 0) {
-                        printf("AHHHHHH");
-                        exit(36);
-                    }
-                }
+            } else if (result == BI_EXECUTED) {
+                return_code = OK;
+            } else if (result == BI_RC) {
+                printf("%d\n", return_code);
+                return_code = OK;
+            } else {
+                return_code = ERR_EXEC_CMD;
+            }
+        } else if (rc == ERR_MEMORY) {
+            perror("Error Allocating memory");
+            return_code = ERR_MEMORY;
+            continue;
+        } else if (rc == ERR_CMD_OR_ARGS_TOO_BIG) {
+            printf("Total command length too long\n");
+            return_code = ERR_CMD_OR_ARGS_TOO_BIG;
+            continue;
         }
-        }
+    free(cmd->_cmd_buffer);
+    memset(cmd, 0, CMD_ARGV_MAX);
+    cmd->argc = 0;
+    //TODO free everything
     }
-
-    // TODO IMPLEMENT MAIN LOOP
-
-    // TODO IMPLEMENT parsing input to cmd_buff_t *cmd_buff
-
-    // TODO IMPLEMENT if built-in command, execute builtin logic for exit, cd (extra credit: dragon)
-    // the cd command should chdir to the provided directory; if no directory is provided, do nothing
-
-    // TODO IMPLEMENT if not built-in command, fork/exec as an external command
-    // for example, if the user input is "ls -l", you would fork/exec the command "ls" with the arg "-l"
-
+    free(cmd_buff);
+    //free(cmd->_cmd_buffer);
+    free(cmd);
     return OK;
-
 }
-
+void printError(int error) {
+    switch (error) {
+        case ENOMEM:
+            printf("Lack of memory to execute program\n");
+            break;
+        case ENOEXEC:
+            printf("Error in the format of the execuatable\n");
+            break;
+        case EPERM:
+            printf("Permission to executre program denied\n");
+            break;
+        case ENOENT:
+            printf("File does not exist\n");
+            break;
+        case EACCES:
+            printf("Permission to access resource denied\n");
+            break;
+        case ENOTSUP:
+            printf("Operation not supported\n");
+            break;
+    }
+}
+int execCmd(cmd_buff_t *cmd){
+    int f_result, c_result;
+    f_result = fork();
+    if (f_result < 0){
+        return errno;
+    }
+    if (f_result == 0) {
+        int rc = execvp(cmd->argv[0], cmd->argv);
+        if (rc < 0) {
+            exit(errno);
+        }
+    } else {
+        wait(&c_result);
+        return WEXITSTATUS(c_result);
+    }
+    return 0;
+}
 int changeDirectory(cmd_buff_t* cmd){
     if (cmd->argc == 1) { //No arguments
         return OK;
@@ -127,7 +180,7 @@ int changeDirectory(cmd_buff_t* cmd){
             return 0;
         }
     } else {
-        printf("Too many arguments\n");
+        printf("cd(): Too many arguments\n");
         return -1;
     }
 }
@@ -150,23 +203,26 @@ int countPipes(char* cmd_buff){
 }
 int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
     int frontOffset = 0;
-
     int tokenLen = strlen(cmd_line);
-
-    char* commandToken = (char *)malloc(sizeof(char) * (tokenLen + 1));
-
-    strcpy(commandToken, cmd_line);
-
+    char* commandToken = strdup(cmd_line);
+    if (commandToken == NULL){
+        perror("Memory Allocation failed");
+        return ERR_MEMORY;
+    }
     int newLen = countWhitespace(commandToken, tokenLen, &frontOffset);
-    
     char* token_cpy = malloc(sizeof(char) * (newLen + 1));
-
+    if (token_cpy == NULL){
+        perror("Memory Allocation failed");
+        return ERR_MEMORY;
+    }
     removeWhitespace(token_cpy, commandToken, newLen, frontOffset);
-
     char* token_cpy_start = token_cpy;
-
+    cmd_buff->_cmd_buffer = strdup(token_cpy);
+    if (cmd_buff->_cmd_buffer == NULL){
+        perror("Memory Allocation failed");
+        return ERR_MEMORY;
+    }
     char* firstSpace = strchr(token_cpy, SPACE_CHAR);
-
     if (firstSpace == NULL) {
 
         if(newLen > EXE_MAX) {
@@ -174,69 +230,49 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         }
 
         cmd_buff->argc = 1;
-        cmd_buff->argv[0] = (char *)malloc(sizeof(char) * newLen);
-        strcpy(cmd_buff->argv[0], token_cpy);
+        cmd_buff->argv[0] = cmd_buff->_cmd_buffer;
     } else {
-        char* start = token_cpy;
-        int exeLen = 0;
-        while(!isspace(*token_cpy)){
-            exeLen++;
-            token_cpy++;
-        }
-        if (exeLen > EXE_MAX) {
+        if (newLen > SH_CMD_MAX) {
             return ERR_CMD_OR_ARGS_TOO_BIG;
         }
-
-        if ((newLen - exeLen - 1) > ARG_MAX){
-            return ERR_CMD_OR_ARGS_TOO_BIG;
-        }
-        token_cpy = start;
-        cmd_buff->argc = 1;
-        cmd_buff->argv[0] = (char *)malloc(sizeof(char) * exeLen);
-        strncpy(cmd_buff->argv[0], token_cpy, exeLen);
-        cmd_buff->argv[0][exeLen] = '\0';
-        token_cpy = firstSpace;
-        token_cpy++;
-        char arg[ARG_MAX];
-        int argLen = 0;
         bool inQuotes = false;
         bool prevSpace = false;
-        while(*token_cpy) {
-            if ((isspace(*token_cpy) && !prevSpace && !inQuotes) || (*token_cpy == '\"' && inQuotes)) {
-                cmd_buff->argc += 1;
-                arg[argLen] = '\0';
-                cmd_buff->argv[cmd_buff->argc - 1] = (char *)malloc(sizeof(char) * argLen + 1);
-                strcpy(cmd_buff->argv[cmd_buff->argc - 1], arg);
-                cmd_buff->argv[cmd_buff->argc - 1][argLen] = '\0';
-                memset(arg, 0, ARG_MAX);
+        char* nextWord;
+        cmd_buff->argc = 1;
+        cmd_buff->argv[0] = cmd_buff->_cmd_buffer;
+        for (int i = 0; i < (newLen + 1); i++) {
+            if ((isspace(cmd_buff->_cmd_buffer[i]) && !inQuotes && !prevSpace)) {
+                cmd_buff->_cmd_buffer[i] = '\0';
+                prevSpace = true;
+            } else if (cmd_buff->_cmd_buffer[i] == '\"' && inQuotes) {
+                cmd_buff->_cmd_buffer[i] = '\0';
                 inQuotes = false;
-                argLen = 0;
-                if (isspace(*(token_cpy + 1))){
-                    token_cpy++;
-                    prevSpace = true;
+                i += 1;
+                prevSpace = true;
+            }  else if (!isspace(cmd_buff->_cmd_buffer[i]) && prevSpace){
+                cmd_buff->argc += 1;
+                if (cmd_buff->argc >= 10) {
+                    printf("Too many arguments\n");
+                    return ERR_CMD_OR_ARGS_TOO_BIG;
                 }
-
-            } else if (*token_cpy == '\"' && !inQuotes) {
-                prevSpace = false;
-                inQuotes = true;
-            } else if (!isspace(*token_cpy) || inQuotes) {
-                arg[argLen] = *token_cpy;
-                argLen++;
+                if (cmd_buff->_cmd_buffer[i] == '\"'){
+                    nextWord = cmd_buff->_cmd_buffer + (i + 1);
+                    cmd_buff->argv[cmd_buff->argc - 1] = nextWord;
+                    inQuotes = true;
+                } else {
+                    nextWord = cmd_buff->_cmd_buffer + i;
+                    cmd_buff->argv[cmd_buff->argc - 1] = nextWord;
+                }
                 prevSpace = false;
             } else {
-                prevSpace = true;
+                continue;
+                }
             }
-            token_cpy++;
         }
-
-        cmd_buff->argc += 1;
-        arg[argLen] = '\0';
-        cmd_buff->argv[cmd_buff->argc - 1] = (char *)malloc(sizeof(char) * argLen + 1);
-        strcpy(cmd_buff->argv[cmd_buff->argc - 1], arg);
-        cmd_buff->argv[cmd_buff->argc - 1][argLen] = '\0';
-    }
     token_cpy = token_cpy_start;
+    cmd_buff->argv[cmd_buff->argc] = NULL; //Needed for execvp
     free(token_cpy);
+    free(commandToken);
     return OK;
 }
 void removeWhitespace(char* destination, char* toBeStripped, int sourceLen, int frontOffset) {
@@ -283,6 +319,8 @@ Built_In_Cmds match_command(const char *input) {
         return BI_CMD_EXIT;
     } else if (strcmp(input, "dragon") == 0) {
         return BI_CMD_DRAGON;
+    } else if (strcmp(input, "rc") == 0){
+        return BI_RC;
     } else {
         return BI_NOT_BI;
     }
@@ -294,11 +332,11 @@ Built_In_Cmds exec_built_in_cmd(cmd_buff_t *cmd) {
         case BI_CMD_CD:
            retVal = changeDirectory(cmd);
            if (retVal != 0){
-               return BI_RC;
+               return BI_CMD_CD;
            }
            break;
         case BI_CMD_EXIT:
-           exit(OK);
+           return BI_CMD_EXIT;
            break;
         case BI_CMD_DRAGON:
            print_dragon();
@@ -306,6 +344,9 @@ Built_In_Cmds exec_built_in_cmd(cmd_buff_t *cmd) {
         case BI_NOT_BI:
            return BI_NOT_BI;
            break;
+        case BI_RC:
+            return BI_RC;
+            break;
         default:
            break;
     }
