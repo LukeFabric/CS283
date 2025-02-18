@@ -70,7 +70,7 @@ int exec_local_cmd_loop()
     while (1)
     {
         printf("%s", SH_PROMPT);
-        if (fgets(cmd_buff, ARG_MAX, stdin) == NULL)
+        if (fgets(cmd_buff, SH_CMD_MAX, stdin) == NULL)
         {
             printf("\n");
             break;
@@ -132,23 +132,53 @@ int exec_local_cmd_loop()
 }
 void printError(int error) {
     switch (error) {
+        case E2BIG:
+            printf("The total number of bytes in the environment and argument list is too large\n");
+            break;
         case ENOMEM:
             printf("Lack of memory to execute program\n");
             break;
         case ENOEXEC:
-            printf("Error in the format of the execuatable\n");
-            break;
-        case EPERM:
-            printf("Permission to executre program denied\n");
+            printf("Error in the format of the executable\n");
             break;
         case ENOENT:
             printf("File does not exist\n");
             break;
         case EACCES:
-            printf("Permission to access resource denied\n");
+            printf("Execute permission for file is denied\n");
             break;
         case ENOTSUP:
             printf("Operation not supported\n");
+            break;
+        case EFAULT:
+            printf("The filename points outside your addressable name space\n");
+            break;
+        case EINVAL:
+            printf("The executable tried to name more than one interpreter\n");
+            break;
+        case EIO:
+            printf("An I/O Error has occured\n");
+            break;
+        case EISDIR:
+            printf("An ELF interpreter was a directory\n");
+            break;
+        case ELIBBAD:
+            printf("An ELF interpreter was not in a recognized format\n");
+            break;
+        case ELOOP:
+            printf("Too many symbolic links were encountered in resolving the executable\n");
+            break;
+        case EMFILE:
+            printf("The process has the maximum number of files open\n");
+            break;
+        case ENAMETOOLONG:
+            printf("The filename was too long\n");
+            break;
+        case ENOTDIR:
+            printf("A component of the path prefix of the filename is not a directory\n");
+            break;
+        case EPERM:
+            printf("The user is not the superuser/the filesystem is mounted nosuid\n");
             break;
     }
 }
@@ -232,9 +262,19 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         cmd_buff->argc = 1;
         cmd_buff->argv[0] = cmd_buff->_cmd_buffer;
     } else {
-        if (newLen > SH_CMD_MAX) {
+        int exeLen = 0;
+        while(!isspace(*token_cpy)) {
+            exeLen++;
+            token_cpy++;
+        }
+        if (exeLen > EXE_MAX) {
             return ERR_CMD_OR_ARGS_TOO_BIG;
         }
+
+        if ((newLen - exeLen - 1) > ARG_MAX){
+            return ERR_CMD_OR_ARGS_TOO_BIG;
+        }
+        
         bool inQuotes = false;
         bool prevSpace = false;
         char* nextWord;
