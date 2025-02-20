@@ -119,6 +119,10 @@ int exec_local_cmd_loop()
             printf("Total command length too long\n");
             return_code = ERR_CMD_OR_ARGS_TOO_BIG;
             continue;
+        } else if (rc == WARN_NO_CMDS) {
+            printf(CMD_WARN_NO_CMD);
+            return_code = WARN_NO_CMDS;
+            continue;
         }
     free(cmd->_cmd_buffer);
     memset(cmd, 0, CMD_ARGV_MAX);
@@ -240,6 +244,9 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         return ERR_MEMORY;
     }
     int newLen = countWhitespace(commandToken, tokenLen, &frontOffset);
+    if (newLen < 0){
+        return WARN_NO_CMDS;
+    }
     char* token_cpy = malloc(sizeof(char) * (newLen + 1));
     if (token_cpy == NULL){
         perror("Memory Allocation failed");

@@ -277,3 +277,22 @@ EOF
     [ "$status" -eq 0 ]
 }
 
+@test "Input string of spaces is read and treated like empty command" {
+    run "./dsh" <<EOF
+                     
+rc
+EOF
+
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="dsh2>warning:nocommandsprovideddsh2>-1dsh2>cmdloopreturned0"
+
+    echo "Captured stdout:"
+    echo "Output: $output"
+    echo "Exit status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    [ "$stripped_output" = "$expected_output" ]
+
+    [ "$status" -eq 0 ]
+}
