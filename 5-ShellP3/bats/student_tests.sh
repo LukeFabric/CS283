@@ -52,7 +52,6 @@ EOF
 @test "Piping into external file that lacks permission" {
     current=$(pwd)
     cd /tmp
-    mkdir -p dsh-test
     touch test.sh
     chmod -x test.sh
 
@@ -209,6 +208,51 @@ EOF
     stripped_output=$(echo "$output" | tr -d '[:space:]')
  
     expected_output="dsh3>warning:nocommandsprovideddsh3>cmdloopreturned0"
+ 
+    echo "Captured stdout:"
+    echo "Output: $output"
+    echo "Exit status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    [ "$stripped_output" = "$expected_output" ]
+
+    [ "$status" -eq 0 ]
+}
+@test "Test redirection output works" {
+    current=$(pwd)
+    cd /tmp
+
+    run "${current}/dsh" <<EOF
+echo "1 2 3" > out.txt
+cat out.txt
+EOF
+rm out.txt
+
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+ 
+    expected_output="dsh3>123dsh3>dsh3>dsh3>dsh3>dsh3>cmdloopreturned0"
+ 
+    echo "Captured stdout:"
+    echo "Output: $output"
+    echo "Exit status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    [ "$stripped_output" = "$expected_output" ]
+
+    [ "$status" -eq 0 ]
+}
+@test "Test redirection input works" {
+    current=$(pwd)
+    cd /tmp
+    echo "1 2 3" > out.txt 
+
+    run "${current}/dsh" <<EOF
+wc -l <  out.txt
+EOF
+rm out.txt
+
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+    expected_output="1dsh3>dsh3>dsh3>cmdloopreturned0"
  
     echo "Captured stdout:"
     echo "Output: $output"
