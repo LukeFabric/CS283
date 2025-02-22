@@ -327,14 +327,27 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
                 }
                 nextWord = cmd_buff->_cmd_buffer + (i + 1);
                 cmd_buff->fileName = nextWord;
+                while (!isspace(cmd_buff->_cmd_buffer[i + 1]) && i < (newLen - 1)) {
+                    i++;
+                }
+                cmd_buff->_cmd_buffer[i + 1] = '\0';
                 break;
             } else if (cmd_buff->_cmd_buffer[i] == '>') {
-                cmd_buff->mode = 2;
+                if (cmd_buff->_cmd_buffer[i + 1] == '>') {
+                    cmd_buff->mode = 3;
+                    i++;
+                } else { 
+                    cmd_buff->mode = 2;
+                }
                 while (isspace(cmd_buff->_cmd_buffer[i + 1])) {
                     i++;
                 }
                 nextWord = cmd_buff->_cmd_buffer + (i + 1);
-                cmd_buff->fileName =nextWord;
+                cmd_buff->fileName = nextWord;
+                while (!isspace(cmd_buff->_cmd_buffer[i + 1]) && i < (newLen - 1)) {
+                    i++;
+                }
+                cmd_buff->_cmd_buffer[i + 1] = '\0';
                 break;
             } else if ((isspace(cmd_buff->_cmd_buffer[i]) && !inQuotes && !prevSpace)) {
                 cmd_buff->_cmd_buffer[i] = '\0';
@@ -449,6 +462,7 @@ Built_In_Cmds exec_built_in_cmd(cmd_buff_t cmd) {
 }
 void execute_pipeline(command_list_t* clist) {
     int result;
+    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
     int pipes[clist->num - 1][2];  // Array of pipes
     pid_t pids[clist->num];        // Array to store process IDs
 
@@ -472,8 +486,6 @@ void execute_pipeline(command_list_t* clist) {
             // Set up input pipe for all except first process
             if (clist->commands[i].mode == 1) {
 
-                mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
-
                 int flags = O_RDONLY;
 
                 int fd = open(clist->commands[i].fileName, flags, mode);
@@ -489,9 +501,18 @@ void execute_pipeline(command_list_t* clist) {
 
             // Set up output pipe for all except last process
             if (clist->commands[i].mode == 2) {
-                mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
 
-                int flags = O_RDWR | O_CREAT;
+                int flags = O_RDWR | O_CREAT | O_TRUNC;
+
+                int fd = open(clist->commands[i].fileName, flags, mode);
+                if (fd == -1) {
+                    exit(1);
+                }
+
+                dup2(fd, STDOUT_FILENO);
+            } else if (clist->commands[i].mode == 3) {
+
+                int flags = O_RDWR | O_CREAT | O_APPEND;
 
                 int fd = open(clist->commands[i].fileName, flags, mode);
                 if (fd == -1) {
