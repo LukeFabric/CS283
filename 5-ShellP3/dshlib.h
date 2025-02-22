@@ -20,6 +20,8 @@ typedef struct cmd_buff
 {
     int  argc;
     char *argv[CMD_ARGV_MAX + 1];
+    char *fileName;
+    int mode;
     char *_cmd_buffer;
 } cmd_buff_t;
 

@@ -99,9 +99,10 @@ int exec_local_cmd_loop()
         rc = build_cmd_list(cmd_buff, cmdList);
         if (rc == OK) {
             return_code = commandCheck(cmdList);
-            if (return_code == 1) {
+            if (return_code == 99) {
                 break;
             }
+            continue;
         } else if (rc == ERR_MEMORY) {
             perror("Error Allocating memory");
             return_code = ERR_MEMORY;
@@ -252,6 +253,7 @@ int build_cmd_list(char* cmd_line, command_list_t* clist) {
     char* commandToken = strtok(cmd_line, PIPE_STRING);
     while(commandToken != NULL) {
         cmd_buff_t* command_buff = malloc(sizeof(cmd_buff_t));
+        command_buff->mode = 0;
         if (command_buff == NULL) {
             return ERR_MEMORY;
         }
@@ -318,7 +320,23 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         cmd_buff->argc = 1;
         cmd_buff->argv[0] = cmd_buff->_cmd_buffer;
         for (int i = 0; i < (newLen + 1); i++) {
-            if ((isspace(cmd_buff->_cmd_buffer[i]) && !inQuotes && !prevSpace)) {
+            if (cmd_buff->_cmd_buffer[i] == '<') {
+                cmd_buff->mode = 1;
+                while (isspace(cmd_buff->_cmd_buffer[i + 1])) {
+                    i++;
+                }
+                nextWord = cmd_buff->_cmd_buffer + (i + 1);
+                cmd_buff->fileName = nextWord;
+                break;
+            } else if (cmd_buff->_cmd_buffer[i] == '>') {
+                cmd_buff->mode = 2;
+                while (isspace(cmd_buff->_cmd_buffer[i + 1])) {
+                    i++;
+                }
+                nextWord = cmd_buff->_cmd_buffer + (i + 1);
+                cmd_buff->fileName =nextWord;
+                break;
+            } else if ((isspace(cmd_buff->_cmd_buffer[i]) && !inQuotes && !prevSpace)) {
                 cmd_buff->_cmd_buffer[i] = '\0';
                 prevSpace = true;
             } else if (cmd_buff->_cmd_buffer[i] == '\"' && inQuotes) {
@@ -449,15 +467,39 @@ void execute_pipeline(command_list_t* clist) {
             perror("fork");
             exit(EXIT_FAILURE);
         }
-
+//TODO: Setup Pipes for redirection
         if (pids[i] == 0) {  // Child process
             // Set up input pipe for all except first process
-            if (i > 0) {
+            if (clist->commands[i].mode == 1) {
+
+                mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
+
+                int flags = O_RDONLY;
+
+                int fd = open(clist->commands[i].fileName, flags, mode);
+
+                if (fd == -1) {
+                    exit(1);
+                }
+
+                dup2(fd, STDIN_FILENO);
+            } else if (i > 0 && clist->commands[i].mode == 0) {
                 dup2(pipes[i-1][0], STDIN_FILENO);
             }
 
             // Set up output pipe for all except last process
-            if (i < clist->num - 1) {
+            if (clist->commands[i].mode == 2) {
+                mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
+
+                int flags = O_RDWR | O_CREAT;
+
+                int fd = open(clist->commands[i].fileName, flags, mode);
+                if (fd == -1) {
+                    exit(1);
+                }
+
+                dup2(fd, STDOUT_FILENO);
+            } else if (i < clist->num - 1 && clist->commands[i].mode == 0) {
                 dup2(pipes[i][1], STDOUT_FILENO);
             }
 
@@ -469,7 +511,7 @@ void execute_pipeline(command_list_t* clist) {
 
             Built_In_Cmds result = exec_built_in_cmd(clist->commands[i]);
             if (result == BI_CMD_EXIT) {
-                exit(1); 
+                exit(99);
             } else if (result == BI_NOT_BI){
                 execvp(clist->commands[i].argv[0], clist->commands[i].argv);
                 exit(errno);
@@ -496,8 +538,9 @@ void execute_pipeline(command_list_t* clist) {
     // Wait for all children
     for (int i = 0; i < clist->num; i++) {
         waitpid(pids[i], &result, 0);
-        if (WEXITSTATUS(result) == 1) {
-            exit(1);
+//        printf("%d\n", WEXITSTATUS(result));
+        if (WEXITSTATUS(result) == 99) {
+            exit(99);
         }
         printError(WEXITSTATUS(result));
     }
