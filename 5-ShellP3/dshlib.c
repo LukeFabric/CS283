@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -101,6 +100,8 @@ int exec_local_cmd_loop()
             return_code = commandCheck(cmdList);
             if (return_code == 99) {
                 break;
+            } else if (return_code != 0) {
+                return_code = ERR_EXEC_CMD;
             }
             continue;
         } else if (rc == ERR_MEMORY) {
@@ -115,21 +116,47 @@ int exec_local_cmd_loop()
             printf(CMD_WARN_NO_CMD);
             return_code = WARN_NO_CMDS;
             continue;
+        } else if (rc == ERR_CMD_ARGS_BAD) {
+            printf("Syntax Error in command\n");
+            return_code = ERR_CMD_ARGS_BAD;
+            continue;
         }
     clear_cmd_list(cmdList);
     }
+    free_cmd_list(cmdList);
+    free(cmdList);
+    free(cmd_buff);
     return OK;
 }
 int clear_cmd_list(command_list_t* cmd_lst) {
-    for (int i = 0; i < cmd_lst->num; i++) {
-        free(cmd_lst->commands[i]._cmd_buffer);
-        //free(&cmd_lst->commands[i]);
-    }
+    free_cmd_list(cmd_lst);
     memset(cmd_lst->commands, 0, CMD_MAX * sizeof(cmd_buff_t));
     cmd_lst->num = 0;
     return OK;
 }
+int free_cmd_list(command_list_t* cmd_lst) {
+    for (int i = 0; i < cmd_lst->num; i++) {
+        free(cmd_lst->commands[i]->_cmd_buffer);
+        free(cmd_lst->commands[i]);
+    }
+    return OK;
+}
 int commandCheck(command_list_t* clist) {
+    int rc;
+    if (clist->num == 1 && clist->commands[0]->outputfileName == NULL && clist->commands[0]->inputfileName == NULL) {
+        Built_In_Cmds result = exec_built_in_cmd(clist->commands[0]);
+        if (result == BI_EXECUTED) {
+            return OK;
+        } else if (result == BI_NOT_BI) {
+            rc = execCmd(clist->commands[0]);
+            printError(rc);
+            return rc;
+        } else if (result == BI_CMD_EXIT) {
+            return 99;
+        } else {
+            return -1;
+        }
+    } else {
     int result;
     pid_t supervisor = fork();
     if (supervisor == -1) {
@@ -139,11 +166,14 @@ int commandCheck(command_list_t* clist) {
 
     if (supervisor == 0) {
         execute_pipeline(clist);
+        free_cmd_list(clist);
         exit(OK);
     }
 
     waitpid(supervisor, &result, 0);
     return WEXITSTATUS(result);
+    }
+    return OK;
 }
 
 void printError(int error) {
@@ -198,14 +228,14 @@ void printError(int error) {
             break;
     }
 }
-int execCmd(cmd_buff_t cmd){
+int execCmd(cmd_buff_t* cmd){
     int f_result, c_result;
-    f_result = 0;
+    f_result = fork();
     if (f_result < 0){
         return errno;
     }
     if (f_result == 0) {
-        int rc = execvp(cmd.argv[0], cmd.argv);
+        int rc = execvp(cmd->argv[0], cmd->argv);
         if (rc < 0) {
             exit(errno);
         }
@@ -215,11 +245,11 @@ int execCmd(cmd_buff_t cmd){
     }
     return 0;
 }
-int changeDirectory(cmd_buff_t cmd){
-    if (cmd.argc == 1) { //No arguments
+int changeDirectory(cmd_buff_t* cmd){
+    if (cmd->argc == 1) { //No arguments
         return OK;
-    } else if (cmd.argc == 2){
-        if (chdir(cmd.argv[1]) != 0) {
+    } else if (cmd->argc == 2){
+        if (chdir(cmd->argv[1]) != 0) {
            perror("chdir failed\n");
            return -1;
         } else {
@@ -253,7 +283,9 @@ int build_cmd_list(char* cmd_line, command_list_t* clist) {
     char* commandToken = strtok(cmd_line, PIPE_STRING);
     while(commandToken != NULL) {
         cmd_buff_t* command_buff = malloc(sizeof(cmd_buff_t));
-        command_buff->mode = 0;
+        command_buff->outputfileName = NULL;
+        command_buff->inputfileName = NULL;
+        command_buff->append = false;
         if (command_buff == NULL) {
             return ERR_MEMORY;
         }
@@ -261,7 +293,7 @@ int build_cmd_list(char* cmd_line, command_list_t* clist) {
         if (rc != 0){
             return rc;
         }
-        clist->commands[clist->num] = *command_buff;
+        clist->commands[clist->num] = command_buff;
         clist->num++;
         commandToken = strtok(NULL, PIPE_STRING);
     }
@@ -316,39 +348,45 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         
         bool inQuotes = false;
         bool prevSpace = false;
+        bool prevRedirectIn = false;
+        bool prevRedirectOut = false;
+        int mode;
         char* nextWord;
         cmd_buff->argc = 1;
         cmd_buff->argv[0] = cmd_buff->_cmd_buffer;
-        for (int i = 0; i < (newLen + 1); i++) {
-            if (cmd_buff->_cmd_buffer[i] == '<') {
-                cmd_buff->mode = 1;
-                while (isspace(cmd_buff->_cmd_buffer[i + 1])) {
-                    i++;
+        for (int i = 0; i < newLen; i++) {
+            if (cmd_buff->_cmd_buffer[i] == '<' && !inQuotes) {
+                if (cmd_buff->_cmd_buffer[i + 1] == '\0' &&  i == newLen - 1) {
+                    return ERR_CMD_ARGS_BAD;
                 }
-                nextWord = cmd_buff->_cmd_buffer + (i + 1);
-                cmd_buff->fileName = nextWord;
-                while (!isspace(cmd_buff->_cmd_buffer[i + 1]) && i < (newLen - 1)) {
-                    i++;
+                if (prevRedirectIn) {
+                    return ERR_CMD_ARGS_BAD;
                 }
-                cmd_buff->_cmd_buffer[i + 1] = '\0';
-                break;
-            } else if (cmd_buff->_cmd_buffer[i] == '>') {
+                mode = 1;
+                i = addFilename(cmd_buff, mode, i, newLen);
+                if (i == -1) {
+                    return ERR_CMD_ARGS_BAD;
+                }
+                prevSpace = true;
+                prevRedirectIn = true;
+            } else if (cmd_buff->_cmd_buffer[i] == '>' && !inQuotes) {
                 if (cmd_buff->_cmd_buffer[i + 1] == '>') {
-                    cmd_buff->mode = 3;
                     i++;
-                } else { 
-                    cmd_buff->mode = 2;
+                    cmd_buff->append = true;
+                }  
+                if (cmd_buff->_cmd_buffer[i + 1] == '\0' &&  i == newLen - 1) {
+                    return ERR_CMD_ARGS_BAD;
                 }
-                while (isspace(cmd_buff->_cmd_buffer[i + 1])) {
-                    i++;
+                if (prevRedirectOut) {
+                    return ERR_CMD_ARGS_BAD;
                 }
-                nextWord = cmd_buff->_cmd_buffer + (i + 1);
-                cmd_buff->fileName = nextWord;
-                while (!isspace(cmd_buff->_cmd_buffer[i + 1]) && i < (newLen - 1)) {
-                    i++;
+                mode = 2;
+                i = addFilename(cmd_buff, mode, i, newLen);
+                if (i == -1) {
+                    return ERR_CMD_ARGS_BAD;
                 }
-                cmd_buff->_cmd_buffer[i + 1] = '\0';
-                break;
+                prevSpace = true;
+                prevRedirectOut = true;
             } else if ((isspace(cmd_buff->_cmd_buffer[i]) && !inQuotes && !prevSpace)) {
                 cmd_buff->_cmd_buffer[i] = '\0';
                 prevSpace = true;
@@ -381,7 +419,29 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
     cmd_buff->argv[cmd_buff->argc] = NULL; //Needed for execvp
     free(token_cpy);
     free(commandToken);
+    if (cmd_buff->argc < 0){
+        return WARN_NO_CMDS;
+    }
     return OK;
+}
+int addFilename(cmd_buff_t* buff, int mode, int loc, int len) {
+    while (isspace(buff->_cmd_buffer[loc + 1])) {
+        loc++;
+    }
+    char* nextWord = buff->_cmd_buffer + (loc + 1);
+    if (*nextWord == '<' || *nextWord == '>') {
+        return -1;
+    }
+    if (mode == 1) {
+        buff->inputfileName = nextWord;
+    } else if (mode == 2) {
+        buff->outputfileName = nextWord;
+    }
+    while ((!isspace(buff->_cmd_buffer[loc + 1]) || buff->_cmd_buffer[loc] == '\\') && loc < (len)) {
+        loc++;
+    }
+    buff->_cmd_buffer[loc + 1] = '\0';
+    return loc + 1;
 }
 void removeWhitespace(char* destination, char* toBeStripped, int sourceLen, int frontOffset) {
     toBeStripped = toBeStripped + frontOffset;
@@ -433,8 +493,8 @@ Built_In_Cmds match_command(const char *input) {
         return BI_NOT_BI;
     }
 }
-Built_In_Cmds exec_built_in_cmd(cmd_buff_t cmd) {
-    Built_In_Cmds rc = match_command(cmd.argv[0]);
+Built_In_Cmds exec_built_in_cmd(cmd_buff_t* cmd) {
+    Built_In_Cmds rc = match_command(cmd->argv[0]);
     int retVal;
     switch (rc) {
         case BI_CMD_CD:
@@ -484,43 +544,43 @@ void execute_pipeline(command_list_t* clist) {
 //TODO: Setup Pipes for redirection
         if (pids[i] == 0) {  // Child process
             // Set up input pipe for all except first process
-            if (clist->commands[i].mode == 1) {
+            if (clist->commands[i]->inputfileName != NULL) {
 
                 int flags = O_RDONLY;
 
-                int fd = open(clist->commands[i].fileName, flags, mode);
+                int fd = open(clist->commands[i]->inputfileName, flags, mode);
 
                 if (fd == -1) {
-                    exit(1);
+                    exit(errno);
                 }
 
                 dup2(fd, STDIN_FILENO);
-            } else if (i > 0 && clist->commands[i].mode == 0) {
+            } else if (i > 0) {
                 dup2(pipes[i-1][0], STDIN_FILENO);
             }
 
             // Set up output pipe for all except last process
-            if (clist->commands[i].mode == 2) {
+            if (clist->commands[i]->outputfileName != NULL && !clist->commands[i]->append) { 
 
                 int flags = O_RDWR | O_CREAT | O_TRUNC;
 
-                int fd = open(clist->commands[i].fileName, flags, mode);
+                int fd = open(clist->commands[i]->outputfileName, flags, mode);
                 if (fd == -1) {
-                    exit(1);
+                    exit(errno);
                 }
 
                 dup2(fd, STDOUT_FILENO);
-            } else if (clist->commands[i].mode == 3) {
+            } else if (clist->commands[i]->outputfileName != NULL && clist->commands[i]->append) {
 
                 int flags = O_RDWR | O_CREAT | O_APPEND;
 
-                int fd = open(clist->commands[i].fileName, flags, mode);
+                int fd = open(clist->commands[i]->outputfileName, flags, mode);
                 if (fd == -1) {
-                    exit(1);
+                    exit(errno);
                 }
 
                 dup2(fd, STDOUT_FILENO);
-            } else if (i < clist->num - 1 && clist->commands[i].mode == 0) {
+            } else if (i < clist->num - 1) {
                 dup2(pipes[i][1], STDOUT_FILENO);
             }
 
@@ -534,7 +594,7 @@ void execute_pipeline(command_list_t* clist) {
             if (result == BI_CMD_EXIT) {
                 exit(99);
             } else if (result == BI_NOT_BI){
-                execvp(clist->commands[i].argv[0], clist->commands[i].argv);
+                execvp(clist->commands[i]->argv[0], clist->commands[i]->argv);
                 exit(errno);
             } else if (result != BI_EXECUTED) {
                 exit(ERR_EXEC_CMD);
@@ -564,5 +624,8 @@ void execute_pipeline(command_list_t* clist) {
             exit(99);
         }
         printError(WEXITSTATUS(result));
+        if (WEXITSTATUS(result) != 0) {
+            exit(WEXITSTATUS(result));
+        }
     }
 }

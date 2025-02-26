@@ -1,7 +1,7 @@
 #ifndef __DSHLIB_H__
     #define __DSHLIB_H__
 
-
+#include <stdbool.h>
 //Constants for command structure sizes
 #define EXE_MAX 64
 #define ARG_MAX 256
@@ -20,8 +20,9 @@ typedef struct cmd_buff
 {
     int  argc;
     char *argv[CMD_ARGV_MAX + 1];
-    char *fileName;
-    int mode;
+    char *outputfileName;
+    char *inputfileName;
+    bool append;
     char *_cmd_buffer;
 } cmd_buff_t;
 
@@ -37,7 +38,7 @@ typedef struct command{
 
 typedef struct command_list{
     int num;
-    cmd_buff_t commands[CMD_MAX];
+    cmd_buff_t* commands[CMD_MAX];
 }command_list_t;
 
 //Special character #defines
@@ -83,17 +84,19 @@ typedef enum {
     BI_RC,
 } Built_In_Cmds;
 Built_In_Cmds match_command(const char *input); 
-Built_In_Cmds exec_built_in_cmd(cmd_buff_t cmd);
+Built_In_Cmds exec_built_in_cmd(cmd_buff_t* cmd);
 void print_dragon();
 //main execution context
 int exec_local_cmd_loop();
 int exec_cmd(cmd_buff_t *cmd);
 void execute_pipeline(command_list_t *clist);
 int executeExternalCommand(command_list_t* clist);
-int execCmd(cmd_buff_t cmd);
+int execCmd(cmd_buff_t* cmd);
 void printError(int error);
 void print_dragon();
 int commandCheck(command_list_t* clist);
+int addFilename(cmd_buff_t* buff, int mode, int loc, int len);
+int changeDirectory(cmd_buff_t* cmd);
 
 //output constants
 #define CMD_OK_HEADER       "PARSED COMMAND LINE - TOTAL COMMANDS %d\n"
