@@ -91,10 +91,14 @@
  */
 int exec_remote_cmd_loop(char *address, int port)
 {
-    int counter = 0;
     int ret;
-    char* send_buff= malloc(RDSH_COMM_BUFF_SZ);
+    char* send_buff= (char*)malloc(RDSH_COMM_BUFF_SZ);
     if (send_buff == NULL) {
+        perror("memory");
+        return ERR_MEMORY;
+    }
+    char* get_buff = (char*)malloc(RDSH_COMM_BUFF_SZ);
+    if (get_buff == NULL) {
         perror("memory");
         return ERR_MEMORY;
     }
@@ -109,44 +113,40 @@ int exec_remote_cmd_loop(char *address, int port)
         send_buff[strcspn(send_buff, "\n")] = '\0';
         int send_len = strlen(send_buff);
         ret = send(data_socket, send_buff, send_len, 0);
-        ret = readResult(data_socket);
-        counter++;
-        if (counter == 5) {
+        if (ret != send_len) {
+            exit(-1);
+       }
+        if (strcmp(send_buff, "exit") == 0) {
+            client_cleanup(data_socket, send_buff, get_buff, ret);
             break;
         }
-        //close(data_socket);
-    }
-    return OK;
-}
-int readResult(int socket) {
-    char *buff;
-    int recv_size;
-    int is_last_chunk;
-    char eof_char = RDSH_EOF_CHAR;
-    buff = malloc(RDSH_COMM_BUFF_SZ);
-    memset(buff, 0, RDSH_COMM_BUFF_SZ);
+        int recv_size;
+        int is_last_chunk;
+        char eof_char = RDSH_EOF_CHAR;
 
-    while((recv_size = recv(socket, buff, RDSH_COMM_BUFF_SZ, 0)) > 0) {
-        if (recv_size < 0){
-            return ERR_RDSH_COMMUNICATION;
+        while((recv_size = recv(data_socket, get_buff, RDSH_COMM_BUFF_SZ, 0)) > 0) {
+            if (recv_size < 0){
+                return ERR_RDSH_COMMUNICATION;
+            }
+            if (recv_size == 0) {
+                break;
+            }
+
+            is_last_chunk = ((char)get_buff[recv_size-1] == eof_char) ? 1 : 0;
+
+            if (is_last_chunk) {
+                get_buff[recv_size-1] = '\0';
+            }
+
+            printf("%.*s", (int)recv_size, get_buff);
+
+            if (is_last_chunk) {
+                break;
+            }
         }
-        if (recv_size == 0) {
-            break;
+        memset(get_buff, 0, RDSH_COMM_BUFF_SZ);
+        memset(send_buff, 0, RDSH_COMM_BUFF_SZ);
         }
-
-        is_last_chunk = ((char)buff[recv_size-1] == eof_char) ? 1 : 0;
-
-        if (is_last_chunk) {
-            buff[recv_size-1] = '\0';
-        }
-
-        printf("%.*s", (int)recv_size, buff);
-
-        if (is_last_chunk) {
-            printf("\n");
-            break;
-        }
-    }
     return OK;
 }
 /*

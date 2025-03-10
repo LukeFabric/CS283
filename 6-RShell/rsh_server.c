@@ -7,15 +7,15 @@
 #include <unistd.h>
 #include <sys/un.h>
 #include <fcntl.h>
+#include <errno.h>
 
 //INCLUDES for extra credit
 //#include <signal.h>
-//#include <pthread.h>
+#include <pthread.h>
 //-------------------------
 
 #include "dshlib.h"
 #include "rshlib.h"
-
 
 /*
  * start_server(ifaces, port, is_threaded)
@@ -211,8 +211,12 @@ int process_cli_requests(int svr_socket){
        }
 
        ret = exec_client_requests(data_socket);
-       close(data_socket);
+       shutdown(data_socket, SHUT_RDWR);
+       if (ret < 0) {
+          break;
+       }
     }
+    return 0;
 }
 
 /*
@@ -257,26 +261,173 @@ int process_cli_requests(int svr_socket){
  *                or receive errors. 
  */
 int exec_client_requests(int cli_socket) {
+    int return_code;
     int ret;
+    int pipeCount;
     char* io_buff = malloc(RDSH_COMM_BUFF_SZ);
+    command_list_t* cmdList = malloc(sizeof(command_list_t));
     while(1) {
         memset(io_buff, 0, RDSH_COMM_BUFF_SZ);
         int recv_size = recv(cli_socket, io_buff, RDSH_COMM_BUFF_SZ, 0);
         if (recv_size < 0) {
             return ERR_RDSH_COMMUNICATION;
         }
-        int send_len = strlen(io_buff) + 1;
-        int bytes_sent;
-        if (strcmp(io_buff, "exit") == 0) {
-            break;
+        pipeCount = countPipes(io_buff);
+        if (pipeCount >= CMD_MAX) {
+           send_message_string(cli_socket, "Error: piping limited to 8 commands\n");
+           return_code = ERR_TOO_MANY_COMMANDS;
+           continue;
         }
-        bytes_sent = send(cli_socket, io_buff, send_len, 0);
-        ret = send_message_eof(cli_socket);
+        ret = build_cmd_list(io_buff, cmdList);
+        return_code = processCmdListError(ret, cli_socket);
+        if (return_code == OK) {
+            return_code = executeCommand(cmdList, cli_socket, return_code);
+//            printf("%d\n",return_code);
+            if (return_code == 99) {
+ //               printf("I am here\n");
+  //              fflush(stdout);
+                break;
+            } else if (return_code == 105) {
+   //             printf("I am here\n");
+    //            fflush(stdout);
+                free_cmd_list(cmdList);
+                free(cmdList);
+                free(io_buff);
+                return -1;
+            } else if (return_code != 0) {
+                return_code = ERR_EXEC_CMD;
+            }
+        } else {
+            continue;
+        }
+        clear_cmd_list(cmdList);
     }
+    free_cmd_list(cmdList);
+    free(cmdList);
     free(io_buff);
     return OK;
 }
+int execCmdServer(cmd_buff_t* cmd, int cli_socket) {
+    int f_result, c_result;
+    f_result = fork();
+    if (f_result < 0){
+        return errno;
+    }
+    if (f_result == 0) {
+        dup2(cli_socket, STDOUT_FILENO);
+        close(cli_socket);
+        int rc = execvp(cmd->argv[0], cmd->argv);
+        if (rc < 0) {
+            exit(errno);
+        }
+    } else {
+        wait(&c_result);
+        send_message_eof(cli_socket);
+        return WEXITSTATUS(c_result);
+    }
+    return 0;
+}
+int executeCommand(command_list_t* cList,int cli_socket, int return_code) {
+    int rc;
+    if (cList->num == 1) {
+        Built_In_Cmds result = rsh_built_in_cmd(cList->commands[0], return_code, cli_socket);
+        if (result == BI_CMD_EXIT) {
+            return 99;
+        } else if (result == BI_EXECUTED) {
+            return OK;
+        } else if (result == BI_NOT_BI) {
+            rc = execCmdServer(cList->commands[0], cli_socket);
+            printErrorServer(rc, cli_socket);
+            return rc;
+        } else if (result == BI_CMD_STOP_SVR) {
+            return 105;
+        } else {
+            return -1;
+        }
+    } else {
+        return rc = rsh_execute_pipeline(cli_socket, cList);
+    }
+}
+        
 
+
+void printErrorServer(int error, int cli_socket) {
+    switch (error) {
+        case E2BIG:
+            send_message_string(cli_socket, "The total number of bytes in the environment and argument list is too large\n");
+            break;
+        case ENOMEM:
+            send_message_string(cli_socket, "Lack of memory to execute program\n");
+            break;
+        case ENOEXEC:
+            send_message_string(cli_socket, "Error in the format of the executable\n");
+            break;
+        case ENOENT:
+            send_message_string(cli_socket, "File does not exist\n");
+            break;
+        case EACCES:
+            send_message_string(cli_socket, "Execute permission for file is denied\n");
+            break;
+        case ENOTSUP:
+            send_message_string(cli_socket, "Operation not supported\n");
+            break;
+        case EFAULT:
+            send_message_string(cli_socket, "The filename points outside your addressable name space\n");
+            break;
+        case EINVAL:
+            send_message_string(cli_socket, "The executable tried to name more than one interpreter\n");
+            break;
+        case EIO:
+            send_message_string(cli_socket, "An I/O Error has occured\n");
+            break;
+        case EISDIR:
+            send_message_string(cli_socket, "An ELF interpreter was a directory\n");
+            break;
+        case ELIBBAD:
+            send_message_string(cli_socket, "An ELF interpreter was not in a recognized format\n");
+            break;
+        case ELOOP:
+            send_message_string(cli_socket, "Too many symbolic links were encountered in resolving the executable\n");
+            break;
+        case EMFILE:
+            send_message_string(cli_socket, "The process has the maximum number of files open\n");
+            break;
+        case ENAMETOOLONG:
+            send_message_string(cli_socket, "The filename was too long\n");
+            break;
+        case ENOTDIR:
+            send_message_string(cli_socket, "A component of the path prefix of the filename is not a directory\n");
+            break;
+        case EPERM:
+            send_message_string(cli_socket, "The user is not the superuser/the filesystem is mounted nosuid\n");
+            break;
+    }
+}
+int processCmdListError(int rc, int cli_socket) {
+    int return_code;
+    switch (rc) {
+        case ERR_MEMORY:
+            send_message_string(cli_socket, "Error allocating memory\n");
+            return_code = ERR_MEMORY;
+            break;
+        case ERR_CMD_OR_ARGS_TOO_BIG:
+            send_message_string(cli_socket, "Total command length too long\n");
+            return_code = ERR_CMD_OR_ARGS_TOO_BIG;
+            break;
+        case WARN_NO_CMDS:
+            send_message_string(cli_socket, CMD_WARN_NO_CMD);
+            return_code = WARN_NO_CMDS;
+            break;
+        case ERR_CMD_ARGS_BAD:
+            send_message_string(cli_socket, "Syntax error in command\n");
+            return_code = ERR_CMD_ARGS_BAD;
+            break;
+        default:
+            return_code = OK;
+            break;
+    }
+    return return_code;
+}
 /*
  * send_message_eof(cli_socket)
  *      cli_socket:  The server-side socket that is connected to the client
@@ -320,7 +471,15 @@ int send_message_eof(int cli_socket){
  *           we were unable to send the message followed by the EOF character. 
  */
 int send_message_string(int cli_socket, char *buff){
-    return WARN_RDSH_NOT_IMPL;
+    int ret;
+    int send_len = strlen(buff) + 1;
+    int bytes_sent;
+    bytes_sent = send(cli_socket, buff, send_len, 0);
+    if (bytes_sent < 0) {
+        return ERR_RDSH_COMMUNICATION;
+    }
+    ret = send_message_eof(cli_socket);
+    return ret;
 }
 
 
@@ -363,7 +522,80 @@ int send_message_string(int cli_socket, char *buff){
  *                  get this value. 
  */
 int rsh_execute_pipeline(int cli_sock, command_list_t *clist) {
-    return WARN_RDSH_NOT_IMPL;
+    int result;
+    //mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
+    int pipes[clist->num - 1][2];  // Array of pipes
+    pid_t pids[clist->num];        // Array to store process IDs
+
+    // Create all necessary pipes
+    for (int i = 0; i < clist->num - 1; i++) {
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Create processes for each command
+    for (int i = 0; i < clist->num ; i++) {
+        pids[i] = fork();
+        if (pids[i] == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        if (pids[i] == 0) {  // Child process
+            // Set up input pipe for all except first process
+            if (i == 0) {
+                dup2(cli_sock, STDIN_FILENO);
+            } else if (i > 0) {
+                dup2(pipes[i-1][0], STDIN_FILENO);
+            }
+
+            // Set up output pipe for all except last process
+            if (i < clist->num - 1) {
+                dup2(pipes[i][1], STDOUT_FILENO);
+            } else if (i == clist->num - 1) {
+                dup2(cli_sock, STDOUT_FILENO);
+                dup2(cli_sock, STDERR_FILENO);
+            }
+
+            // Close all pipe ends in child
+            for (int j = 0; j < clist->num - 1; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            Built_In_Cmds result = exec_built_in_cmd(clist->commands[i]);
+            if (result == BI_CMD_EXIT) {
+                exit(99);
+            } else if (result == BI_NOT_BI){
+                execvp(clist->commands[i]->argv[0], clist->commands[i]->argv);
+                exit(errno);
+            } else if (result != BI_EXECUTED) {
+                exit(ERR_EXEC_CMD);
+            } else {
+                exit(OK);
+            }
+            // Execute command
+             /*
+            execvp(clist->commands[i].argv[0], clist->commands[i].argv);
+            perror("execvp");
+            exit(EXIT_FAILURE);
+            */
+        }
+    }
+
+    // Parent process: close all pipe ends
+    for (int i = 0; i < clist->num - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+    // Wait for all children
+    for (int i = 0; i < clist->num; i++) {
+        waitpid(pids[i], &result, 0);
+    }
+    send_message_eof(cli_sock);
+    return WEXITSTATUS(result);
 }
 
 /**************   OPTIONAL STUFF  ***************/
@@ -436,7 +668,62 @@ Built_In_Cmds rsh_match_command(const char *input)
  *   AGAIN - THIS IS TOTALLY OPTIONAL IF YOU HAVE OR WANT TO HANDLE BUILT-IN
  *   COMMANDS DIFFERENTLY. 
  */
-Built_In_Cmds rsh_built_in_cmd(cmd_buff_t *cmd)
+Built_In_Cmds rsh_built_in_cmd(cmd_buff_t *cmd, int return_code, int cli_socket)
 {
-    return BI_NOT_IMPLEMENTED;
+    Built_In_Cmds rc = match_command(cmd->argv[0]);
+    int retVal;
+    switch (rc) {
+        case BI_CMD_CD:
+            retVal = changeDirectoryServer(cmd, cli_socket);
+            if (retVal != 0){
+                return BI_CMD_CD;
+            }
+            break;
+        case BI_CMD_EXIT:
+            return BI_CMD_EXIT;
+            break;
+        case BI_NOT_BI:
+            return BI_NOT_BI;
+            break;
+        case BI_CMD_STOP_SVR:
+            return BI_CMD_STOP_SVR;
+            break;
+        default:
+            break;
+    } 
+    int f_result, c_result;
+    f_result = fork();
+    if (f_result < 0) {
+        return errno;
+    }
+    if (f_result == 0) {
+        dup2(cli_socket, STDOUT_FILENO);
+        close(cli_socket);
+        if (rc == BI_CMD_DRAGON) {
+            print_dragon();
+        } else if (rc == BI_RC){
+            printf("%d\n", return_code);
+        }
+        exit(0);
+    } else {
+        wait(&c_result);
+        send_message_eof(cli_socket);
+        return BI_EXECUTED;
+    }
+    return BI_EXECUTED;
+}
+int changeDirectoryServer(cmd_buff_t* cmd, int cli_socket){
+    if (cmd->argc == 1) { //No arguments
+        return OK;
+    } else if (cmd->argc == 2){
+        if (chdir(cmd->argv[1]) != 0) {
+            send_message_string(cli_socket, "Change Dir failed\n");
+           return -1;
+        } else {
+            return 0;
+        }
+    } else {
+        send_message_string(cli_socket, "cd(): Too many arguments\n");
+        return -1;
+    }
 }

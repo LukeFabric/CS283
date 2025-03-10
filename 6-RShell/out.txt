@@ -1,0 +1,1 @@
+gcc -Wall -Wextra -g -fanalyzer -o dsh dragon.c dsh_cli.c dshlib.c rsh_cli.c rsh_server.c
