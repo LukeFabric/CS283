@@ -44,6 +44,7 @@
  * 
  *      IF YOU IMPLEMENT THE MULTI-THREADED SERVER FOR EXTRA CREDIT YOU NEED
  *      TO DO SOMETHING WITH THE is_threaded ARGUMENT HOWEVER.  
+ *      test
  */
 int start_server(char *ifaces, int port, int is_threaded){
     int svr_socket;
@@ -223,43 +224,34 @@ int process_cli_requests(int svr_socket){
 }
 
 int process_cli_requests_threaded(int svr_socket){
-    int socket;
-    int data_socket;
-    void* ret = 0;
-    pthread_t thread_id;
-    while (1) {
-       data_socket = accept(svr_socket, NULL, NULL);
-       socket = data_socket;
-       if (data_socket == -1) {
-           perror("accept");
-           return ERR_RDSH_COMMUNICATION;
-       }
-       if (pthread_create(&thread_id, NULL, exec_client_requests_threaded, (void*)&data_socket) < 0) {
+    void *status = 0;
+    pthread_t thread_id[20];
+    for (int i = 0; i < 20; i++) {
+       if (pthread_create(&thread_id[i], NULL, exec_client_requests_threaded, (void*)&svr_socket) < 0) {
            perror("could not create thread");
            return ERR_RDSH_COMMUNICATION;
        }
-        pthread_join(thread_id, &ret);
-       if (ret != 0) {
-           if (data_socket < 0) {
-                close(socket);
-               break;
-           }
-           break;
-        } else {
-            printf("thread failed\n");
-        }
-        close(socket);
     }
-    pthread_exit(NULL);
+    for (int i = 0; i < 20; i++) {
+        pthread_join(thread_id[i], &status);
+        if (status != 0) {
+            break;
+        }
+    }
     return 0;
 }
-void* exec_client_requests_threaded(void* socket) {
-    int cli_socket = *((int *)socket);
+void* exec_client_requests_threaded(void* arg) {
+    int sock = *((int*)arg);
     int rc;
+    int cli_socket = accept(sock, NULL, NULL);
+    if (cli_socket == -1) {
+        perror("accept");
+        pthread_exit((void*)ERR_RDSH_COMMUNICATION);
+    }
     rc = exec_client_requests(cli_socket);
-    *((int*)socket) = rc;
-    pthread_exit(socket);
-    return 0;
+    *((int*)arg)= rc; 
+    close(cli_socket);
+    pthread_exit(arg);
 }
 /*
  * exec_client_requests(cli_socket)
@@ -696,6 +688,7 @@ int rsh_execute_pipeline(int cli_sock, command_list_t *clist) {
  */
 Built_In_Cmds rsh_match_command(const char *input)
 {
+    printf("%s\n", input);
     return BI_NOT_IMPLEMENTED;
 }
 

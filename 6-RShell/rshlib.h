@@ -4,7 +4,10 @@
 #include "dshlib.h"
 
 //common remote shell client and server constants and definitions
-
+typedef struct thread_data {
+    int socket;
+    int retVal;
+} thread_data;
 
 //Constants for communication
 //Note that these should work fine in a local VM but you will likely have
