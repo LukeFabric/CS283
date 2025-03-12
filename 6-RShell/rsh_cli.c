@@ -111,14 +111,22 @@ int exec_remote_cmd_loop(char *address, int port)
             break;
         }
         send_buff[strcspn(send_buff, "\n")] = '\0';
-        int send_len = strlen(send_buff);
-        ret = send(data_socket, send_buff, send_len, 0);
+        if (!send_buff[0]) {
+            printf(CMD_WARN_NO_CMD);
+            send(data_socket, "\0", 1, 0);
+            continue;
+        }
+        int send_len = strlen(send_buff) + 1;
+        ret = send(data_socket, send_buff, send_len, 0); 
         if (ret != send_len) {
             exit(-1);
        }
         if (strcmp(send_buff, "exit") == 0) {
             client_cleanup(data_socket, send_buff, get_buff, ret);
             break;
+        } else if (strcmp(send_buff, "stop-server") == 0){
+            printf(RCMD_SERVER_EXITED);
+            return OK;
         }
         int recv_size;
         int is_last_chunk;
@@ -129,6 +137,8 @@ int exec_remote_cmd_loop(char *address, int port)
                 return ERR_RDSH_COMMUNICATION;
             }
             if (recv_size == 0) {
+                printf(RCMD_SERVER_EXITED);
+                return OK;
                 break;
             }
 
@@ -174,7 +184,6 @@ int exec_remote_cmd_loop(char *address, int port)
  */
 int start_client(char *server_ip, int port){
     struct sockaddr_in addr;
-    int data_len;
     int ret;
     int data_socket = socket(AF_INET, SOCK_STREAM, 0);
 

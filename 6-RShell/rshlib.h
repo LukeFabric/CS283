@@ -67,11 +67,13 @@ int process_cli_requests(int svr_socket);
 int exec_client_requests(int cli_socket);
 int rsh_execute_pipeline(int socket_fd, command_list_t *clist);
 int readResult(int socket);
-int processCmdListError(int rc, int cli_socket);
+int processCmdListError(int rc, int cli_socket, command_list_t* clist);
 int executeCommand(command_list_t* cList, int cli_socket, int return_code);
 void printErrorServer(int error, int cli_socket);
 int execCmdServer(cmd_buff_t* cmd, int cli_socket);
 int changeDirectoryServer(cmd_buff_t* cmd, int cli_socket);
+int process_cli_requests_threaded(int svr_socket);
+void* exec_client_requests_threaded(void* socket);
 
 // SEE COMMENTS IN THE CODE, THESE ARE OPTIONAL IN CASE YOU WANT TO PROVIDE
 // SUPPORT FOR BUILT-IN FUNCTIONS DIFFERENTLY 

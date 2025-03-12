@@ -10,7 +10,7 @@
 #include <errno.h>
 
 //INCLUDES for extra credit
-//#include <signal.h>
+#include <signal.h>
 #include <pthread.h>
 //-------------------------
 
@@ -59,8 +59,11 @@ int start_server(char *ifaces, int port, int is_threaded){
         int err_code = svr_socket;  //server socket will carry error code
         return err_code;
     }
-
-    rc = process_cli_requests(svr_socket);
+    if (is_threaded == 0){
+        rc = process_cli_requests(svr_socket);
+    } else {
+        rc = process_cli_requests_threaded(svr_socket);
+    }
 
     stop_server(svr_socket);
 
@@ -219,6 +222,45 @@ int process_cli_requests(int svr_socket){
     return 0;
 }
 
+int process_cli_requests_threaded(int svr_socket){
+    int socket;
+    int data_socket;
+    void* ret = 0;
+    pthread_t thread_id;
+    while (1) {
+       data_socket = accept(svr_socket, NULL, NULL);
+       socket = data_socket;
+       if (data_socket == -1) {
+           perror("accept");
+           return ERR_RDSH_COMMUNICATION;
+       }
+       if (pthread_create(&thread_id, NULL, exec_client_requests_threaded, (void*)&data_socket) < 0) {
+           perror("could not create thread");
+           return ERR_RDSH_COMMUNICATION;
+       }
+        pthread_join(thread_id, &ret);
+       if (ret != 0) {
+           if (data_socket < 0) {
+                close(socket);
+               break;
+           }
+           break;
+        } else {
+            printf("thread failed\n");
+        }
+        close(socket);
+    }
+    pthread_exit(NULL);
+    return 0;
+}
+void* exec_client_requests_threaded(void* socket) {
+    int cli_socket = *((int *)socket);
+    int rc;
+    rc = exec_client_requests(cli_socket);
+    *((int*)socket) = rc;
+    pthread_exit(socket);
+    return 0;
+}
 /*
  * exec_client_requests(cli_socket)
  *      cli_socket:  The server-side socket that is connected to the client
@@ -261,7 +303,7 @@ int process_cli_requests(int svr_socket){
  *                or receive errors. 
  */
 int exec_client_requests(int cli_socket) {
-    int return_code;
+    int return_code = 0;
     int ret;
     int pipeCount;
     char* io_buff = malloc(RDSH_COMM_BUFF_SZ);
@@ -272,6 +314,10 @@ int exec_client_requests(int cli_socket) {
         if (recv_size < 0) {
             return ERR_RDSH_COMMUNICATION;
         }
+        if (strlen(io_buff) == 0 && io_buff[0] == '\0') {
+            return_code = WARN_NO_CMDS;
+            continue;
+        }
         pipeCount = countPipes(io_buff);
         if (pipeCount >= CMD_MAX) {
            send_message_string(cli_socket, "Error: piping limited to 8 commands\n");
@@ -279,8 +325,8 @@ int exec_client_requests(int cli_socket) {
            continue;
         }
         ret = build_cmd_list(io_buff, cmdList);
-        return_code = processCmdListError(ret, cli_socket);
-        if (return_code == OK) {
+        ret = processCmdListError(ret, cli_socket, cmdList);
+        if (ret == OK) {
             return_code = executeCommand(cmdList, cli_socket, return_code);
 //            printf("%d\n",return_code);
             if (return_code == 99) {
@@ -290,6 +336,7 @@ int exec_client_requests(int cli_socket) {
             } else if (return_code == 105) {
    //             printf("I am here\n");
     //            fflush(stdout);
+                printf(RCMD_MSG_SVR_STOP_REQ);
                 free_cmd_list(cmdList);
                 free(cmdList);
                 free(io_buff);
@@ -298,6 +345,7 @@ int exec_client_requests(int cli_socket) {
                 return_code = ERR_EXEC_CMD;
             }
         } else {
+            return_code = ret;
             continue;
         }
         clear_cmd_list(cmdList);
@@ -345,8 +393,10 @@ int executeCommand(command_list_t* cList,int cli_socket, int return_code) {
             return -1;
         }
     } else {
-        return rc = rsh_execute_pipeline(cli_socket, cList);
+        rc = rsh_execute_pipeline(cli_socket, cList);
+        return rc;
     }
+    return OK;
 }
         
 
@@ -403,8 +453,15 @@ void printErrorServer(int error, int cli_socket) {
             break;
     }
 }
-int processCmdListError(int rc, int cli_socket) {
+int processCmdListError(int rc, int cli_socket, command_list_t* clist) {
     int return_code;
+    for (int i = 0; i < clist->num; i++) {
+        if (clist->commands[i]->inputfileName != NULL || clist->commands[i]->outputfileName != NULL) {
+            send_message_string(cli_socket, "File redirection not supported in server mode\n");
+            return ERR_CMD_ARGS_BAD;
+        }
+    }
+
     switch (rc) {
         case ERR_MEMORY:
             send_message_string(cli_socket, "Error allocating memory\n");
@@ -567,6 +624,8 @@ int rsh_execute_pipeline(int cli_sock, command_list_t *clist) {
             Built_In_Cmds result = exec_built_in_cmd(clist->commands[i]);
             if (result == BI_CMD_EXIT) {
                 exit(99);
+            } else if (result == BI_CMD_STOP_SVR) {
+                exit(105);
             } else if (result == BI_NOT_BI){
                 execvp(clist->commands[i]->argv[0], clist->commands[i]->argv);
                 exit(errno);
@@ -594,7 +653,11 @@ int rsh_execute_pipeline(int cli_sock, command_list_t *clist) {
     for (int i = 0; i < clist->num; i++) {
         waitpid(pids[i], &result, 0);
     }
-    send_message_eof(cli_sock);
+    if (WEXITSTATUS(result) != 0) {
+        printErrorServer(WEXITSTATUS(result), cli_sock);
+    } else {
+        send_message_eof(cli_sock);
+    }
     return WEXITSTATUS(result);
 }
 
