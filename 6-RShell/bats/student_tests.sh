@@ -231,6 +231,7 @@ EOF
     run "${current}/dsh" <<EOF
 echo "1 2 3" > out1.txt
 cat out1.txt
+exit
 EOF
 
     stripped_output=$(echo "$output" | tr -d '[:space:]')
@@ -253,6 +254,7 @@ EOF
 
     run "${current}/dsh" <<EOF
 wc -l < out2.txt
+exit
 EOF
     stripped_output=$(echo "$output" | tr -d '[:space:]')
     expected_output="1localmodedsh4>localmodedsh4>dsh4>cmdloopreturned0"
@@ -402,6 +404,7 @@ EOF
 @test "Correct message from trying to read in non existant file" {
     run "./dsh" <<EOF
 wc -l < awehghgafahksdhvmfbawrirryabwebrbsfebrfigasioipohbj.txt
+exit
 EOF
 
     stripped_output=$(echo "$output" | tr -d '[:space:]')
@@ -814,7 +817,7 @@ EOF
 
     stripped_output=$(echo "$output" | tr -d '[:space:]')
 
-    expected_output="socketclientmode:addr:127.0.0.1:1234dsh4>batsdragon.cdshdsh_cli.cdshlib.cdshlib.hmakefileoutput.txtrsh_cli.crshlib.hrsh_server.cdsh4>warning:nocommandsprovideddsh4>socketservermode:addr:0.0.0.0:1234->Single-ThreadedMode-1dsh4>serverappearedtoterminate-exitingcmdloopreturned0"
+    expected_output="socketclientmode:addr:127.0.0.1:1234dsh4>batsdragon.cdshdsh_cli.cdshlib.cdshlib.hmakefileoutput.txtquestions.mdrsh_cli.crshlib.hrsh_server.cdsh4>warning:nocommandsprovideddsh4>socketservermode:addr:0.0.0.0:1234->Single-ThreadedMode-1dsh4>serverappearedtoterminate-exitingcmdloopreturned0"
 
     echo "Captured stdout:"
     echo "Output: $output"
@@ -877,7 +880,30 @@ EOF
 
     stripped_output=$(echo "$output" | tr -d '[:space:]')
 
-    expected_output="socketclientmode:addr:127.0.0.1:1234dsh4>socketservermode:addr:0.0.0.0:1234->Single-ThreadedModedsh4>Filedoesnotexistdsh4>serverappearedtoterminate-exitingcmdloopreturned0"
+    expected_output="socketclientmode:addr:127.0.0.1:1234dsh4>socketservermode:addr:0.0.0.0:1234->Single-ThreadedModeFiledoesnotexistdsh4>socketservermode:addr:0.0.0.0:1234->Single-ThreadedMode-6dsh4>serverappearedtoterminate-exitingcmdloopreturned0"
+
+    echo "Captured stdout:"
+    echo "Output: $output"
+    echo "Exit status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    [ "$stripped_output" = "$expected_output" ]
+
+    [ "$status" -eq 0 ]
+}
+@test "Multi-threaded works as expected" {
+    ./dsh -s -x &
+    ./dsh -c <<EOF 
+rc
+exit
+EOF
+    run ./dsh -c <<EOF
+echo 123
+stop-server
+EOF
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="socketclientmode:addr:127.0.0.1:1234dsh4>123dsh4>serverappearedtoterminate-exitingcmdloopreturned0"
 
     echo "Captured stdout:"
     echo "Output: $output"

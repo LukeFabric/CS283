@@ -57,14 +57,9 @@ int exec_local_cmd_loop()
 {
     char *cmd_buff = (char *)malloc(SH_CMD_MAX * sizeof(char));
     int rc = 0;
-    cmd_buff_t* cmd = (cmd_buff_t*)malloc(sizeof(cmd_buff_t));
     command_list_t* cmdList = malloc(sizeof(command_list_t));
     if(cmd_buff == NULL){
         printf("Error allocating memory for command buffer\n");
-        return ERR_MEMORY;
-    }
-    if(cmd == NULL){
-        printf("Error allocating memory for cmd struct\n");
         return ERR_MEMORY;
     }
 
@@ -143,6 +138,7 @@ int free_cmd_list(command_list_t* cmd_lst) {
     }
     return OK;
 }
+
 int commandCheck(command_list_t* clist) {
     int rc;
     if (clist->num == 1 && clist->commands[0]->outputfileName == NULL && clist->commands[0]->inputfileName == NULL) {
@@ -168,7 +164,7 @@ int commandCheck(command_list_t* clist) {
 
     if (supervisor == 0) {
         execute_pipeline(clist);
-        free_cmd_list(clist);
+        //free_cmd_list(clist);
         exit(OK);
     }
 
@@ -277,7 +273,6 @@ int countPipes(char* cmd_buff){
         cmdBuffPipe++;
     }
     cmdBuffPipe = start;
-    //printf("%s %d\n", cmdBuffPipe, pipeCount);
     free(cmdBuffPipe);
     cmdBuffPipe = NULL;
     return pipeCount;
@@ -288,12 +283,12 @@ int build_cmd_list(char* cmd_line, command_list_t* clist) {
     char* commandToken = strtok(cmd_line, PIPE_STRING);
     while(commandToken != NULL) {
         cmd_buff_t* command_buff = malloc(sizeof(cmd_buff_t));
-        command_buff->outputfileName = NULL;
-        command_buff->inputfileName = NULL;
-        command_buff->append = false;
         if (command_buff == NULL) {
             return ERR_MEMORY;
         }
+        command_buff->outputfileName = NULL;
+        command_buff->inputfileName = NULL;
+        command_buff->append = false;
         rc = build_cmd_buff(commandToken, command_buff);
         if (rc != 0){
             return rc;
@@ -314,10 +309,12 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
     }
     int newLen = countWhitespace(commandToken, tokenLen, &frontOffset);
     if (newLen < 0){
+        free(commandToken);
         return WARN_NO_CMDS;
     }
     char* token_cpy = malloc(sizeof(char) * (newLen + 1));
     if (token_cpy == NULL){
+        free(commandToken);
         perror("Memory Allocation failed");
         return ERR_MEMORY;
     }
@@ -325,6 +322,7 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
     char* token_cpy_start = token_cpy;
     cmd_buff->_cmd_buffer = strdup(token_cpy);
     if (cmd_buff->_cmd_buffer == NULL){
+        free(commandToken);
         perror("Memory Allocation failed");
         return ERR_MEMORY;
     }
@@ -332,6 +330,7 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
     if (firstSpace == NULL) {
 
         if(newLen > EXE_MAX) {
+            free(commandToken);
                 return ERR_CMD_OR_ARGS_TOO_BIG;
         }
 
@@ -344,10 +343,12 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
             token_cpy++;
         }
         if (exeLen > EXE_MAX) {
+            free(commandToken);
             return ERR_CMD_OR_ARGS_TOO_BIG;
         }
 
         if ((newLen - exeLen - 1) > ARG_MAX){
+            free(commandToken);
             return ERR_CMD_OR_ARGS_TOO_BIG;
         }
         
@@ -362,9 +363,11 @@ int build_cmd_buff(char* cmd_line, cmd_buff_t* cmd_buff){
         for (int i = 0; i < newLen; i++) {
             if (cmd_buff->_cmd_buffer[i] == '<' && !inQuotes) {
                 if (cmd_buff->_cmd_buffer[i + 1] == '\0' &&  i == newLen - 1) {
+                    free(commandToken);
                     return ERR_CMD_ARGS_BAD;
                 }
                 if (prevRedirectIn) {
+                    free(commandToken);
                     return ERR_CMD_ARGS_BAD;
                 }
                 mode = 1;
@@ -464,6 +467,10 @@ void removeWhitespace(char* destination, char* toBeStripped, int sourceLen, int 
 int countWhitespace(char* token, int tokenLen, int* frontOffset){
 
     char* tbsCopy = (char *)malloc(sizeof(char) * (tokenLen + 1));
+
+    if (tbsCopy == NULL) {
+        return ERR_MEMORY;
+    }
 
     strcpy(tbsCopy, token);
     
@@ -629,8 +636,10 @@ void execute_pipeline(command_list_t* clist) {
     // Wait for all children
     for (int i = 0; i < clist->num; i++) {
         waitpid(pids[i], &result, 0);
-//        printf("%d\n", WEXITSTATUS(result));
         if (WEXITSTATUS(result) == 99) {
+            for (int j = i + 1; j < clist->num; j++) {
+                waitpid(pids[j], &result, 0);
+            }
             exit(99);
         }
         printError(WEXITSTATUS(result));

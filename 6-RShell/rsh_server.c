@@ -135,8 +135,8 @@ int boot_server(char *ifaces, int port){
      * get held up, this forces the port to be bound, do not use
      * in a real application
      */
-    int enable=1;
-    setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+    //int enable=1;
+    //setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
     
     /* Bind socket to socket name. */
     addr.sin_family = AF_INET;
@@ -155,7 +155,7 @@ int boot_server(char *ifaces, int port){
      * to 20. So while one request is being processed other requests
      * can be waiting.
      */
-    ret = listen(listen_socket, 20);
+    ret = listen(listen_socket, MAX_CONNECTIONS);
     if (ret == -1) {
         perror("listen");
         return ERR_RDSH_COMMUNICATION;
@@ -211,6 +211,7 @@ int process_cli_requests(int svr_socket){
        data_socket = accept(svr_socket, NULL, NULL);
        if (data_socket == -1) {
            perror("accept");
+           close(data_socket);
            return ERR_RDSH_COMMUNICATION;
        }
 
@@ -222,23 +223,71 @@ int process_cli_requests(int svr_socket){
     }
     return 0;
 }
-
 int process_cli_requests_threaded(int svr_socket){
-    void *status = 0;
+    
+    void* status = 0;
+    int socket_list[MAX_CONNECTIONS];
     pthread_t thread_id[20];
-    for (int i = 0; i < 20; i++) {
-       if (pthread_create(&thread_id[i], NULL, exec_client_requests_threaded, (void*)&svr_socket) < 0) {
+    for (int i = 0; i < MAX_CONNECTIONS; i++ ) {
+        socket_list[i] = svr_socket;
+    }
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+       if (pthread_create(&thread_id[i], NULL, exec_client_requests_threaded, (void*)&socket_list[i]) < 0) {
            perror("could not create thread");
            return ERR_RDSH_COMMUNICATION;
        }
     }
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
         pthread_join(thread_id[i], &status);
         if (status != 0) {
+            for (int j = i+1; j < MAX_CONNECTIONS; j++) {
+                pthread_kill(thread_id[j], 0);
+            }
             break;
         }
     }
     return 0;
+}
+/*
+int process_cli_requests_threaded(int server_socket) {
+    int client_socket_fd;
+    pthread_t client_thread_id;
+    char* socketContent[RDSH_COMM_BUFF_SZ] = {0};
+    while (1) {
+        if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
+            return ERR_RDSH_COMMUNICATION;
+        }
+
+        
+        if(pthread_create(&client_thread_id, NULL, handle_client, (void *)&client_socket_fd) < 0) {
+            close(client_socket_fd);
+            return ERR_RDSH_COMMUNICATION;
+        }
+        if (read(client_socket_fd, &socketContent, RDSH_COMM_BUFF_SZ) == 0) {
+            break;
+        }
+    }
+
+    return OK;
+}
+*/
+void *handle_client(void *client_socket_ptr) {
+    int client_socket = *(int *)client_socket_ptr; 
+
+    int exec_client_requests_rc;
+    exec_client_requests_rc = exec_client_requests(client_socket);
+
+    if (exec_client_requests_rc == ERR_RDSH_COMMUNICATION) {
+        close(client_socket);
+    } else if (exec_client_requests_rc == OK) {
+        printf(RCMD_MSG_CLIENT_EXITED);
+        close(client_socket);
+    } else if (exec_client_requests_rc == OK_EXIT) {
+        printf(RCMD_MSG_SVR_STOP_REQ);
+        close(client_socket);
+    }
+
+    return NULL;
 }
 void* exec_client_requests_threaded(void* arg) {
     int sock = *((int*)arg);
@@ -249,9 +298,13 @@ void* exec_client_requests_threaded(void* arg) {
         pthread_exit((void*)ERR_RDSH_COMMUNICATION);
     }
     rc = exec_client_requests(cli_socket);
-    *((int*)arg)= rc; 
     close(cli_socket);
-    pthread_exit(arg);
+    if (rc == 0) {
+        pthread_exit(0);
+    } else {
+        *(int*) arg = rc;
+        pthread_exit(arg);
+    }
 }
 /*
  * exec_client_requests(cli_socket)
@@ -299,7 +352,15 @@ int exec_client_requests(int cli_socket) {
     int ret;
     int pipeCount;
     char* io_buff = malloc(RDSH_COMM_BUFF_SZ);
+    if (io_buff == NULL) {
+        send_message_string(cli_socket, "Error Allocating Memory\n");
+        return 0; //Returns 0 to close connection
+    }
     command_list_t* cmdList = malloc(sizeof(command_list_t));
+    if (cmdList == NULL) {
+        send_message_string(cli_socket, "Error Allocating Memory\n");
+        return 0;
+    }
     while(1) {
         memset(io_buff, 0, RDSH_COMM_BUFF_SZ);
         int recv_size = recv(cli_socket, io_buff, RDSH_COMM_BUFF_SZ, 0);
@@ -320,14 +381,9 @@ int exec_client_requests(int cli_socket) {
         ret = processCmdListError(ret, cli_socket, cmdList);
         if (ret == OK) {
             return_code = executeCommand(cmdList, cli_socket, return_code);
-//            printf("%d\n",return_code);
             if (return_code == 99) {
- //               printf("I am here\n");
-  //              fflush(stdout);
                 break;
             } else if (return_code == 105) {
-   //             printf("I am here\n");
-    //            fflush(stdout);
                 printf(RCMD_MSG_SVR_STOP_REQ);
                 free_cmd_list(cmdList);
                 free(cmdList);
@@ -345,26 +401,6 @@ int exec_client_requests(int cli_socket) {
     free_cmd_list(cmdList);
     free(cmdList);
     free(io_buff);
-    return OK;
-}
-int execCmdServer(cmd_buff_t* cmd, int cli_socket) {
-    int f_result, c_result;
-    f_result = fork();
-    if (f_result < 0){
-        return errno;
-    }
-    if (f_result == 0) {
-        dup2(cli_socket, STDOUT_FILENO);
-        close(cli_socket);
-        int rc = execvp(cmd->argv[0], cmd->argv);
-        if (rc < 0) {
-            exit(errno);
-        }
-    } else {
-        wait(&c_result);
-        send_message_eof(cli_socket);
-        return WEXITSTATUS(c_result);
-    }
     return 0;
 }
 int executeCommand(command_list_t* cList,int cli_socket, int return_code) {
@@ -376,8 +412,8 @@ int executeCommand(command_list_t* cList,int cli_socket, int return_code) {
         } else if (result == BI_EXECUTED) {
             return OK;
         } else if (result == BI_NOT_BI) {
-            rc = execCmdServer(cList->commands[0], cli_socket);
-            printErrorServer(rc, cli_socket);
+            rc = rsh_execute_pipeline(cli_socket, cList);
+            //printErrorServer(rc, cli_socket);
             return rc;
         } else if (result == BI_CMD_STOP_SVR) {
             return 105;

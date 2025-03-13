@@ -91,7 +91,7 @@
  */
 int exec_remote_cmd_loop(char *address, int port)
 {
-    int ret;
+    int ret = 0;
     char* send_buff= (char*)malloc(RDSH_COMM_BUFF_SZ);
     if (send_buff == NULL) {
         perror("memory");
@@ -100,14 +100,21 @@ int exec_remote_cmd_loop(char *address, int port)
     char* get_buff = (char*)malloc(RDSH_COMM_BUFF_SZ);
     if (get_buff == NULL) {
         perror("memory");
+        free(send_buff);
         return ERR_MEMORY;
     }
     int data_socket = start_client(address, port);
+    if (data_socket < 0) {
+        free(send_buff);
+        free(get_buff);
+        return -1;
+    }
     while (1) {
 
         printf("%s", SH_PROMPT);
         if (fgets(send_buff, SH_CMD_MAX, stdin) == NULL){
             printf("\n");
+            client_cleanup(data_socket, send_buff, get_buff, ret);
             break;
         }
         send_buff[strcspn(send_buff, "\n")] = '\0';
@@ -125,6 +132,7 @@ int exec_remote_cmd_loop(char *address, int port)
             client_cleanup(data_socket, send_buff, get_buff, ret);
             break;
         } else if (strcmp(send_buff, "stop-server") == 0){
+            client_cleanup(data_socket, send_buff, get_buff, ret);
             printf(RCMD_SERVER_EXITED);
             return OK;
         }
@@ -202,6 +210,7 @@ int start_client(char *server_ip, int port){
                    sizeof(struct sockaddr_in));
     if (ret == -1) {
         fprintf(stderr, "The server is down.\n");
+        close(data_socket);
         return ERR_RDSH_CLIENT;
     }
     return data_socket;

@@ -16,7 +16,7 @@ typedef struct thread_data {
 #define RDSH_DEF_SVR_INTFACE    "0.0.0.0"   //Default start all interfaces
 #define RDSH_DEF_CLI_CONNECT    "127.0.0.1" //Default server is running on
                                             //localhost 127.0.0.1
-
+#define MAX_CONNECTIONS 20
 //constants for buffer sizes
 #define RDSH_COMM_BUFF_SZ       (1024*64)   //64K
 #define STOP_SERVER_SC          200         //returned from pipeline excution
@@ -73,11 +73,10 @@ int readResult(int socket);
 int processCmdListError(int rc, int cli_socket, command_list_t* clist);
 int executeCommand(command_list_t* cList, int cli_socket, int return_code);
 void printErrorServer(int error, int cli_socket);
-int execCmdServer(cmd_buff_t* cmd, int cli_socket);
 int changeDirectoryServer(cmd_buff_t* cmd, int cli_socket);
 int process_cli_requests_threaded(int svr_socket);
 void* exec_client_requests_threaded(void* socket);
-
+void *handle_client(void *client_socket_ptr);
 // SEE COMMENTS IN THE CODE, THESE ARE OPTIONAL IN CASE YOU WANT TO PROVIDE
 // SUPPORT FOR BUILT-IN FUNCTIONS DIFFERENTLY 
 Built_In_Cmds rsh_match_command(const char *input);
