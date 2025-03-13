@@ -224,10 +224,9 @@ int process_cli_requests(int svr_socket){
     return 0;
 }
 int process_cli_requests_threaded(int svr_socket){
-    
     void* status = 0;
     int socket_list[MAX_CONNECTIONS];
-    pthread_t thread_id[20];
+    pthread_t thread_id[MAX_CONNECTIONS];
     for (int i = 0; i < MAX_CONNECTIONS; i++ ) {
         socket_list[i] = svr_socket;
     }
@@ -247,47 +246,6 @@ int process_cli_requests_threaded(int svr_socket){
         }
     }
     return 0;
-}
-/*
-int process_cli_requests_threaded(int server_socket) {
-    int client_socket_fd;
-    pthread_t client_thread_id;
-    char* socketContent[RDSH_COMM_BUFF_SZ] = {0};
-    while (1) {
-        if ((client_socket_fd = accept(server_socket, NULL, NULL)) == -1) {
-            return ERR_RDSH_COMMUNICATION;
-        }
-
-        
-        if(pthread_create(&client_thread_id, NULL, handle_client, (void *)&client_socket_fd) < 0) {
-            close(client_socket_fd);
-            return ERR_RDSH_COMMUNICATION;
-        }
-        if (read(client_socket_fd, &socketContent, RDSH_COMM_BUFF_SZ) == 0) {
-            break;
-        }
-    }
-
-    return OK;
-}
-*/
-void *handle_client(void *client_socket_ptr) {
-    int client_socket = *(int *)client_socket_ptr; 
-
-    int exec_client_requests_rc;
-    exec_client_requests_rc = exec_client_requests(client_socket);
-
-    if (exec_client_requests_rc == ERR_RDSH_COMMUNICATION) {
-        close(client_socket);
-    } else if (exec_client_requests_rc == OK) {
-        printf(RCMD_MSG_CLIENT_EXITED);
-        close(client_socket);
-    } else if (exec_client_requests_rc == OK_EXIT) {
-        printf(RCMD_MSG_SVR_STOP_REQ);
-        close(client_socket);
-    }
-
-    return NULL;
 }
 void* exec_client_requests_threaded(void* arg) {
     int sock = *((int*)arg);
